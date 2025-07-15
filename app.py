@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from typing import List
 
 import requests
@@ -50,7 +51,9 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
             output_path = os.path.join(thread_dir, filename.replace(".html", ".txt"))
             if force or not os.path.exists(output_path):
                 logger.debug(f"Cleaning {input_path}")
-                clean_html_file(input_path, output_path)
+                match = re.search(r"page_(\d+)\.html", filename)
+                page_number = int(match.group(1)) if match else None
+                clean_html_file(input_path, output_path, page_number)
 
 
 def load_thread_text(thread_dir: str) -> str:
@@ -81,6 +84,8 @@ def ask():
     if existing_thread:
         thread_key = existing_thread
         thread_dir = get_thread_dir(thread_key)
+        if refresh:
+            preprocess_thread(thread_dir, force=True)
     elif url:
         url = normalize_url(url)
         thread_key = url.rstrip("/").split("/")[-1]
@@ -89,8 +94,6 @@ def ask():
             last_page = detect_last_page(url)
             fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
             preprocess_thread(thread_dir, force=True)
-        else:
-            preprocess_thread(thread_dir, force=False)
     else:
         return "Must provide a thread", 400
 
