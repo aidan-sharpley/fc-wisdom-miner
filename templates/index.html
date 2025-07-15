@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Forum Thread Q&A</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+      max-width: 800px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 100px;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    button {
+      padding: 0.5rem 1rem;
+      margin-top: 1rem;
+    }
+
+    pre {
+      background: #f4f4f4;
+      padding: 1rem;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Forum Thread Q&A</h1>
+
+  <form method="post">
+    <label for="existing_thread">Select Existing Thread:</label>
+    <select id="existing_thread" name="existing_thread">
+      <option value="">-- Select a thread --</option>
+      {% for thread in existing_threads %}
+      <option value="{{ thread }}">{{ thread }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="url">Or Enter Forum Thread URL:</label>
+    <input id="url" name="url" type="text" placeholder="https://fuckcombustion.com/threads/phase3-vaporizers.48407" />
+
+    <label for="prompt">Your Question about the thread:</label>
+    <textarea id="prompt" name="prompt" placeholder="Ask your question here..." required></textarea>
+
+    <button type="submit">Ask</button>
+  </form>
+
+  {% if response %}
+  <h2>Response:</h2>
+  <pre>{{ response }}</pre>
+  {% endif %}
+</body>
+
+</html>
