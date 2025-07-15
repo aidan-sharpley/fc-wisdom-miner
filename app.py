@@ -1,153 +1,84 @@
 import os
-from typing import List, Optional
+from typing import Any, Dict, Optional
 
 import requests
-from flask import Flask, render_template, request
+from flask import Flask, redirect, render_template, request, url_for
 
 from fetch_forum import detect_last_page, fetch_forum_pages
-from preprocess import preprocess_all
+from preprocess import load_thread_text, preprocess_thread
 
 app = Flask(__name__)
+
+TMP_DIR = "tmp"
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3.1:8b"
-TMP_DIR = "tmp"
 
 
-def load_forum_corpus(thread_folder: str) -> str:
-    texts: List[str] = []
-    folder_path = os.path.join(TMP_DIR, thread_folder)
-    if not os.path.isdir(folder_path):
-        print(f"[load_forum_corpus] Folder not found: {folder_path}")
-        return ""
-
-    for fname in sorted(os.listdir(folder_path)):
-        if fname.endswith(".txt"):
-            file_path = os.path.join(folder_path, fname)
-            with open(file_path, encoding="utf-8") as f:
-                texts.append(f.read())
-    corpus = "\n\n".join(texts)
-    print(f"[load_forum_corpus] Loaded corpus length: {len(corpus)} chars")
-    return corpus
+def list_threads() -> list[str]:
+    if not os.path.exists(TMP_DIR):
+        return []
+    return sorted(
+        [d for d in os.listdir(TMP_DIR) if os.path.isdir(os.path.join(TMP_DIR, d))]
+    )
 
 
-def get_thread_folder(base_url: str) -> str:
-    # Derive a folder name from the URL, e.g. the last segment "phase3-vaporizers.48407"
-    thread_id = base_url.rstrip("/").split("/")[-1]
-    return thread_id
+def call_ollama(prompt: str) -> str:
+    payload: Dict[str, Any] = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+    try:
+        res = requests.post(OLLAMA_API_URL, json=payload, timeout=60)
+        res.raise_for_status()
+        data = res.json()
+        return data.get("response", "[No response]")
+    except Exception as e:
+        return f"[Error communicating with Ollama: {e}]"
 
 
 @app.route("/", methods=["GET", "POST"])
 def index() -> str:
+    threads = list_threads()
     response_text: str = ""
-    error_msg: Optional[str] = None
-
-    # List existing threads (folders in TMP_DIR)
-    existing_threads: List[str] = []
-    if os.path.exists(TMP_DIR):
-        existing_threads = [
-            d for d in os.listdir(TMP_DIR) if os.path.isdir(os.path.join(TMP_DIR, d))
-        ]
+    selected_thread: Optional[str] = None
+    question: str = ""
 
     if request.method == "POST":
-        base_url: str = request.form.get("url", "").strip()
-        user_prompt: str = request.form.get("prompt", "").strip()
-        selected_thread: str = request.form.get("thread_select", "").strip()
-
-        print(f"[POST] base_url: {base_url}")
-        print(f"[POST] user_prompt: {user_prompt}")
-        print(f"[POST] selected_thread: {selected_thread}")
-
-        # Choose which thread to use: selected existing or new from URL
-        if selected_thread:
-            thread_folder = selected_thread
-            print(f"[POST] Using existing thread folder: {thread_folder}")
-        elif base_url:
-            thread_folder = get_thread_folder(base_url)
-            print(f"[POST] Using new thread folder from URL: {thread_folder}")
-        else:
-            error_msg = "Please provide a thread URL or select an existing thread."
-            return render_template(
-                "index.html",
-                response=response_text,
-                error=error_msg,
-                existing_threads=existing_threads,
-            )
-
-        folder_path = os.path.join(TMP_DIR, thread_folder)
-        os.makedirs(folder_path, exist_ok=True)
-
-        # Check if we already have .txt files in the thread folder
-        txt_files = [f for f in os.listdir(folder_path) if f.endswith(".txt")]
-
-        try:
-            if not txt_files:
-                # Fetch pages and preprocess only if no existing data
-                print(
-                    f"[POST] No existing txt files found in {folder_path}, fetching and preprocessing..."
-                )
-                if not base_url:
-                    error_msg = "Base URL is required to fetch new thread data."
-                    return render_template(
-                        "index.html",
-                        response=response_text,
-                        error=error_msg,
-                        existing_threads=existing_threads,
+        action = request.form.get("action")
+        if action == "add_thread":
+            base_url = request.form.get("new_url", "").strip()
+            if base_url:
+                # Extract thread id from url (last part after .)
+                # Example: https://fuckcombustion.com/threads/phase3-vaporizers.48407
+                thread_id = base_url.rstrip("/").split(".")[-1]
+                thread_dir = os.path.join(TMP_DIR, thread_id)
+                if not os.path.exists(thread_dir):
+                    os.makedirs(thread_dir, exist_ok=True)
+                    last_page = detect_last_page(base_url)
+                    fetch_forum_pages(base_url, thread_id, 1, last_page)
+                    preprocess_thread(thread_dir)
+                return redirect(url_for("index", thread=thread_id))
+        elif action == "ask_question":
+            selected_thread = request.form.get("thread_select")
+            question = request.form.get("prompt", "").strip()
+            if selected_thread and question:
+                thread_dir = os.path.join(TMP_DIR, selected_thread)
+                if os.path.exists(thread_dir):
+                    context = load_thread_text(thread_dir)
+                    system_prompt = (
+                        "You are an expert forum analyst. Based on the following anonymized forum content, "
+                        "answer the user's question with clear reasoning.\n\n"
+                        f"{context}\n\n"
+                        f"Question: {question}"
                     )
+                    response_text = call_ollama(system_prompt)
 
-                # Detect last page to fetch
-                last_page = detect_last_page(base_url)
-                print(f"[POST] Detected last page: {last_page}")
-
-                # Fetch forum pages into thread folder
-                fetch_forum_pages(
-                    base_url, start=1, end=last_page, save_folder=folder_path
-                )
-                preprocess_all(thread_folder)
-            else:
-                print(
-                    f"[POST] Found existing txt files in {folder_path}, skipping fetch/preprocess."
-                )
-
-            # Load corpus from thread folder
-            context = load_forum_corpus(thread_folder)
-            if not context.strip():
-                error_msg = "Failed to load content from forum thread."
-                return render_template(
-                    "index.html",
-                    response=response_text,
-                    error=error_msg,
-                    existing_threads=existing_threads,
-                )
-
-            system_prompt = (
-                "You are an expert forum analyst. Based on the following anonymized forum content, "
-                "answer the user's question with clear reasoning.\n\n"
-                f"{context}\n\n"
-                f"Question: {user_prompt}"
-            )
-
-            payload = {"model": OLLAMA_MODEL, "prompt": system_prompt, "stream": False}
-            print(f"[POST] Sending request to Ollama API: {OLLAMA_API_URL}")
-            res = requests.post(OLLAMA_API_URL, json=payload, timeout=60)
-            res.raise_for_status()
-
-            response_json = res.json()
-            response_text = response_json.get("response", "[No response from model]")
-            print(f"[POST] Ollama response length: {len(response_text)} chars")
-
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Error communicating with Ollama API: {e}"
-            print(f"[ERROR] {error_msg}")
-
-        except Exception as e:
-            error_msg = f"Unexpected error: {e}"
-            print(f"[ERROR] {error_msg}")
+    else:
+        selected_thread = request.args.get("thread")
 
     return render_template(
         "index.html",
+        threads=threads,
         response=response_text,
-        error=error_msg,
-        existing_threads=existing_threads,
+        selected_thread=selected_thread,
+        question=question,
     )
 
 

@@ -20,18 +20,29 @@
     select {
       width: 100%;
       padding: 0.5rem;
-      margin-bottom: 1rem;
+      margin-top: 0.25rem;
     }
 
     button {
       padding: 0.5rem 1rem;
       margin-top: 1rem;
+      margin-right: 1rem;
     }
 
     pre {
       background: #f4f4f4;
       padding: 1rem;
       white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    label {
+      font-weight: bold;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
     }
   </style>
 </head>
@@ -40,27 +51,47 @@
   <h1>Forum Thread Q&A</h1>
 
   <form method="post">
-    <label for="existing_thread">Select Existing Thread:</label>
-    <select id="existing_thread" name="existing_thread">
-      <option value="">-- Select a thread --</option>
-      {% for thread in existing_threads %}
-      <option value="{{ thread }}">{{ thread }}</option>
-      {% endfor %}
-    </select>
+    <input type="hidden" name="action" value="add_thread" />
+    <div class="form-group">
+      <label for="new_url">Add New Forum Thread URL:</label><br />
+      <input id="new_url" name="new_url" type="text"
+        placeholder="https://fuckcombustion.com/threads/phase3-vaporizers.48407" />
+    </div>
+    <button type="submit">Add Thread</button>
+  </form>
 
-    <label for="url">Or Enter Forum Thread URL:</label>
-    <input id="url" name="url" type="text" placeholder="https://fuckcombustion.com/threads/phase3-vaporizers.48407" />
+  <hr />
 
-    <label for="prompt">Your Question about the thread:</label>
-    <textarea id="prompt" name="prompt" placeholder="Ask your question here..." required></textarea>
+  {% if threads %}
+  <form method="post">
+    <input type="hidden" name="action" value="ask_question" />
+    <div class="form-group">
+      <label for="thread_select">Select Existing Thread:</label><br />
+      <select name="thread_select" id="thread_select" required>
+        <option value="">-- Select Thread --</option>
+        {% for thread in threads %}
+        <option value="{{ thread }}" {% if thread==selected_thread %}selected{% endif %}>Thread ID: {{ thread }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="prompt">Your Question about the thread:</label><br />
+      <textarea id="prompt" name="prompt" placeholder="Ask your question here..." required>{{ question }}</textarea>
+    </div>
 
     <button type="submit">Ask</button>
   </form>
+  {% else %}
+  <p>No threads available. Add a thread above.</p>
+  {% endif %}
 
   {% if response %}
   <h2>Response:</h2>
   <pre>{{ response }}</pre>
   {% endif %}
+
 </body>
 
 </html>
