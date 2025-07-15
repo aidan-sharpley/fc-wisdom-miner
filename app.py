@@ -15,7 +15,7 @@ app = Flask(__name__)
 app.secret_key = "replace-with-a-secure-random-secret"
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
 # OLLAMA_MODEL = "phi3:3.8b"
-OLLAMA_MODEL = "deepseek-r1:5b"
+OLLAMA_MODEL = "deepseek-r1:1.5b"
 # OLLAMA_MODEL = "llama3.1:8b" unusable
 BASE_TMP_DIR = "tmp"
 
