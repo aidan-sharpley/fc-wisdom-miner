@@ -14,8 +14,8 @@ from preprocess import clean_html_file
 app = Flask(__name__)
 app.secret_key = "replace-with-a-secure-random-secret"
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-# OLLAMA_MODEL = "deepseek-r1:1.5b"
-OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_MODEL = "deepseek-r1:7b"
+# OLLAMA_MODEL = "llama3.1:8b"
 BASE_TMP_DIR = "tmp"
 
 logging.basicConfig(
@@ -188,16 +188,12 @@ def ask():
         If the user asks for a specific page, provide a summary of that page's posts.
         
         All responses should be concise, relevant, and directly address the user's question.
-        
-        Context is provided below. Use it to answer the user's question, but do not repeat the context verbatim in your response.
-        If the user asks for specific information, use the context to provide a direct answer.
-        
-        Context:
-        {context}
-        
         ---
-        Everything below this line is the user's question. Do not include it in your response.
-        {prompt}
+        Context is provided below. Use it to answer the user's question, but do not repeat the context verbatim in your response.
+        <<{context}>>
+        ---
+        Everything below this line and between the "<<>>" is the user's question. Do not include it in your response.
+        <<{prompt}>>
         """
 
     payload = {
