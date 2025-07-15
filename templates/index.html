@@ -1,93 +1,147 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8" />
-  <title>Forum Q&A</title>
+  <meta charset="utf-8" />
+  <title>Forum Wisdom Miner</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      margin: 2rem auto;
-      max-width: 800px;
+      max-width: 900px;
+      margin: 1em auto;
     }
 
-    textarea,
-    input[type="text"],
-    select {
-      width: 100%;
-      margin: 0.5rem 0;
-      padding: 0.5rem;
+    form {
+      margin-bottom: 1em;
     }
 
-    button {
-      margin-top: 1rem;
-      padding: 0.5rem 1rem;
+    label {
+      display: block;
+      margin-top: 1em;
     }
 
-    pre {
+    #response {
       white-space: pre-wrap;
-      background: #f4f4f4;
-      padding: 1rem;
+      background: #f8f8f8;
+      padding: 1em;
+      border: 1px solid #ddd;
+      min-height: 100px;
+      max-height: 400px;
+      overflow-y: auto;
     }
   </style>
 </head>
 
 <body>
-  <h1>Ask a Question About a Forum Thread</h1>
+  <h1>Forum Wisdom Miner</h1>
 
-  <form id="qaForm">
-    <label>Select existing thread:</label>
-    <select id="existing" name="url">
-      <option value="">-- Choose a thread --</option>
+  {% with messages = get_flashed_messages() %}
+  {% if messages %}
+  <ul style="color: red;">
+    {% for message in messages %}
+    <li>{{ message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endwith %}
+
+  <form id="ask-form">
+    <label for="thread-select">Or select an existing thread:</label>
+    <select id="thread-select" name="existing_thread">
+      <option value="">-- select a thread --</option>
       {% for thread in threads %}
       <option value="{{ thread }}">{{ thread }}</option>
       {% endfor %}
     </select>
 
-    <label>Or enter new thread URL:</label>
-    <input type="text" id="url" name="url" placeholder="https://example.com/thread" />
+    <label for="url">Or enter thread URL:</label>
+    <input type="text" id="url" name="url" placeholder="https://example.com/forum/thread/12345" style="width: 100%;" />
 
-    <label>Your Question:</label>
-    <textarea name="prompt" required></textarea>
+    <label for="prompt">Your question:</label>
+    <textarea id="prompt" name="prompt" placeholder="Ask a question about this thread..." rows="3" required
+      style="width: 100%;"></textarea>
 
-    <label><input type="checkbox" name="refresh" value="true" /> Refresh/Redownload</label><br />
+    <label><input type="checkbox" id="refresh" name="refresh" /> Refresh forum data</label>
 
     <button type="submit">Ask</button>
   </form>
 
-  <h2>Answer:</h2>
   <pre id="response"></pre>
 
   <script>
-    const form = document.getElementById("qaForm");
-    const responseBox = document.getElementById("response");
+    const form = document.getElementById("ask-form");
+    const responseEl = document.getElementById("response");
+    const urlInput = document.getElementById("url");
+    const threadSelect = document.getElementById("thread-select");
+
+    // When selecting a thread, clear URL input to avoid conflicts
+    threadSelect.addEventListener("change", () => {
+      if (threadSelect.value) {
+        urlInput.value = "";
+      }
+    });
+
+    // When typing in URL input, clear thread select to avoid conflicts
+    urlInput.addEventListener("input", () => {
+      if (urlInput.value.trim() !== "") {
+        threadSelect.value = "";
+      }
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      responseBox.textContent = "Thinking...";
 
-      const formData = new FormData(form);
-      const selected = form.elements["existing"].value;
-      const custom = form.elements["url"].value;
+      const existing_thread = threadSelect.value.trim();
+      const url = urlInput.value.trim();
+      const prompt = document.getElementById("prompt").value.trim();
+      const refresh = document.getElementById("refresh").checked;
 
-      if (!custom && selected) {
-        formData.set("url", selected);
+      if (!prompt) {
+        alert("Please enter a question.");
+        return;
+      }
+      if (!existing_thread && !url) {
+        alert("Please select an existing thread or enter a thread URL.");
+        return;
       }
 
-      const res = await fetch("/ask", {
-        method: "POST",
-        body: formData,
-      });
+      responseEl.textContent = "";
+      // Disable button while loading (optional)
+      form.querySelector("button[type=submit]").disabled = true;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
+      const body = { prompt, refresh };
+      if (existing_thread) {
+        body.existing_thread = existing_thread;
+      } else {
+        body.url = url;
+      }
 
-      responseBox.textContent = "";
+      try {
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        responseBox.textContent += decoder.decode(value, { stream: true });
+        if (!res.ok) {
+          const errorText = await res.text();
+          responseEl.textContent = `Error: ${errorText}`;
+          form.querySelector("button[type=submit]").disabled = false;
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          responseEl.textContent += decoder.decode(value);
+          responseEl.scrollTop = responseEl.scrollHeight;
+        }
+      } catch (err) {
+        responseEl.textContent = `Error: ${err.message}`;
+      } finally {
+        form.querySelector("button[type=submit]").disabled = false;
       }
     });
   </script>
