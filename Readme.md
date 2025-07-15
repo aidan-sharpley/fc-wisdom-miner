@@ -1,6 +1,6 @@
 # Forum Thread Q&A App
 
-This Flask web app lets you fetch, preprocess, and query multi-page forum threads using a local Ollama LLM (`llama3.1:8b` model). It downloads forum pages, anonymizes user info, and allows you to ask questions about the thread content.
+This Flask web app lets you fetch, preprocess, and query multi-page forum threads using a local Ollama LLM (`deepseek-r1:1.5b` model). It downloads forum pages, anonymizes user info, and allows you to ask questions about the thread content.
 
 ---
 
@@ -20,6 +20,6 @@ This Flask web app lets you fetch, preprocess, and query multi-page forum thread
 - [Flask](https://flask.palletsprojects.com/)
 - [Requests](https://docs.python-requests.org/)
 - [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/)
-- [Ollama](https://ollama.com/) running locally with model `llama3.1:8b`
+- [Ollama](https://ollama.com/) running locally with model `deepseek-r1:1.5b`
 
 ---
