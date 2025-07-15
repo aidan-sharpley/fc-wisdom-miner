@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -44,8 +45,34 @@ def list_threads() -> List[str]:
     )
 
 
+def clean_post_content(raw: str) -> str:
+    # Unescape HTML entities
+    text = html.unescape(raw)
+
+    # Remove all quote blocks like:
+    #    username said:\n content \nClick to expand...
+    text = re.sub(
+        r"(?:^|\n)\s*\w+\s+said:\s*\n.*?(?:Click to expand\.\.\.)?",
+        "",
+        text,
+        flags=re.DOTALL,
+    )
+
+    # Remove remaining "Click to expand..." anywhere
+    text = re.sub(r"Click to expand\.\.\.", "", text)
+
+    # Normalize spacing
+    text = re.sub(r"[\t ]+", " ", text)
+    text = re.sub(r"\n{2,}", "\n", text).strip()
+
+    return text
+
+
 def preprocess_thread(thread_dir: str, force: bool = False) -> None:
-    for filename in os.listdir(thread_dir):
+    combined_path = os.path.join(thread_dir, "combined.jsonl")
+    all_posts = []
+
+    for filename in sorted(os.listdir(thread_dir)):
         if filename.endswith(".html"):
             input_path = os.path.join(thread_dir, filename)
             output_path = os.path.join(thread_dir, filename.replace(".html", ".txt"))
@@ -55,14 +82,48 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                 page_number = int(match.group(1)) if match else -1
                 clean_html_file(input_path, output_path, page_number)
 
+    for filename in sorted(os.listdir(thread_dir)):
+        if filename.endswith(".txt"):
+            with open(os.path.join(thread_dir, filename), encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        post = json.loads(line.strip())
+                        content = post.get("content", "")
+                        if not content:
+                            continue
+                        cleaned = clean_post_content(content)
+                        if not cleaned:
+                            continue
+                        post["content"] = cleaned
+                        all_posts.append(post)
+                    except Exception as e:
+                        logger.warning(f"Skipping invalid post in {filename}: {e}")
+
+    with open(combined_path, "w", encoding="utf-8") as f:
+        for post in all_posts:
+            compact = {
+                "date": post["date"],
+                "page": post["page"],
+                "content": post["content"],
+            }
+            f.write(json.dumps(compact, ensure_ascii=False) + "\n")
+
+    logger.info(f"Optimally combined {len(all_posts)} posts into {combined_path}")
+
 
 def load_thread_text(thread_dir: str) -> str:
-    txt_files = sorted(f for f in os.listdir(thread_dir) if f.endswith(".txt"))
+    combined_path = os.path.join(thread_dir, "combined.jsonl")
     lines = []
-    for fname in txt_files:
-        path = os.path.join(thread_dir, fname)
-        with open(path, encoding="utf-8") as f:
-            lines.extend(line.strip() for line in f if line.strip())
+
+    with open(combined_path, encoding="utf-8") as f:
+        for line in f:
+            try:
+                post = json.loads(line.strip())
+                lines.append(
+                    f"[Page {post['page']}] {post['date']}:\n{post['content']}"
+                )
+            except Exception as e:
+                logger.warning(f"Malformed line: {e}")
     return "\n\n".join(lines)
 
 
@@ -102,12 +163,11 @@ def ask():
     logger.debug(f"Loaded context length: {len(context)}")
 
     system_prompt = f"""
-        Instructions:
         You are an expert forum analyst helping a user explore a forum thread that contains multiple posts per page and multiple pages within the thread.
 
         The user will ask questions about the thread, which consists of posts with metadata in JSON format: each post has a page number, ISO date, and textual content.
         
-        Example post metadata: '{{"page": 1, "date": "2020-03-12T23:22:56-0400", "content": "If when you choose to sell any, you'll need to let us know in advance in order to set you up as a commercial account, ok? Great work!"}}'
+        Use this metadata format for posts within the combined context: '{{"page": 1, "date": "2020-03-12T23:22:56-0400", "content": "If when you choose to sell any, you'll need to let us know in advance in order to set you up as a commercial account, ok? Great work!"}}'
 
         By default, provide clear, conversational, helpful answers that address the user's question directly without excessive explanation.
 
@@ -115,15 +175,27 @@ def ask():
         https://fuckcombustion.com/threads/phase3-vaporizers.48407/post-{{post_id}}.
 
         Use the anonymized content for context and keep answers friendly and expert.
-
-        ---
-
+        
+        All responses should be in English, even if the original posts are in another language.
+        
+        If the user asks for a summary, provide a concise overview of the thread's main points and discussions.
+        
+        If the user asks for a list of posts, provide a numbered list with brief summaries of each post.
+        
+        If the user asks for a specific post, provide the post's content along with its metadata.
+        
+        If the user asks for a specific page, provide a summary of that page's posts.
+        
+        All responses should be concise, relevant, and directly address the user's question.
+        
+        Context is provided below. Use it to answer the user's question, but do not repeat the context verbatim in your response.
+        If the user asks for specific information, use the context to provide a direct answer.
+        
         Context:
         {context}
         
         ---
-        
-        User question:
+        Everything below this line is the user's question. Do not include it in your response.
         {prompt}
         """
 
