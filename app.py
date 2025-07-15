@@ -52,17 +52,18 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
             if force or not os.path.exists(output_path):
                 logger.debug(f"Cleaning {input_path}")
                 match = re.search(r"page_(\d+)\.html", filename)
-                page_number = int(match.group(1)) if match else None
+                page_number = int(match.group(1)) if match else -1
                 clean_html_file(input_path, output_path, page_number)
 
 
 def load_thread_text(thread_dir: str) -> str:
-    texts = []
-    for fname in sorted(os.listdir(thread_dir)):
-        if fname.endswith(".txt"):
-            with open(os.path.join(thread_dir, fname), encoding="utf-8") as f:
-                texts.append(f.read())
-    return "\n\n".join(texts)
+    txt_files = sorted(f for f in os.listdir(thread_dir) if f.endswith(".txt"))
+    lines = []
+    for fname in txt_files:
+        path = os.path.join(thread_dir, fname)
+        with open(path, encoding="utf-8") as f:
+            lines.extend(line.strip() for line in f if line.strip())
+    return "\n\n".join(lines)
 
 
 @app.route("/")
@@ -100,12 +101,31 @@ def ask():
     context = load_thread_text(thread_dir)
     logger.debug(f"Loaded context length: {len(context)}")
 
-    system_prompt = (
-        "You are an expert forum analyst. Based on the following anonymized forum content, "
-        "answer the user's question with clear reasoning.\n\n"
-        f"{context}\n\n"
-        f"Question: {prompt}"
-    )
+    system_prompt = f"""
+        Instructions:
+        You are an expert forum analyst helping a user explore a forum thread that contains multiple posts per page and multiple pages within the thread.
+
+        The user will ask questions about the thread, which consists of posts with metadata in JSON format: each post has a page number, ISO date, and textual content.
+        
+        Example post metadata: '{{"page": 1, "date": "2020-03-12T23:22:56-0400", "content": "If when you choose to sell any, you'll need to let us know in advance in order to set you up as a commercial account, ok? Great work!"}}'
+
+        By default, provide clear, conversational, helpful answers that address the user's question directly without excessive explanation.
+
+        If the user asks for detailed reasoning or evidence, then provide supporting post metadata including the post date and a direct link to the post on the forum. Construct post links by appending the post ID (if available) to the base URL: 
+        https://fuckcombustion.com/threads/phase3-vaporizers.48407/post-{{post_id}}.
+
+        Use the anonymized content for context and keep answers friendly and expert.
+
+        ---
+
+        Context:
+        {context}
+        
+        ---
+        
+        User question:
+        {prompt}
+        """
 
     payload = {
         "model": OLLAMA_MODEL,
