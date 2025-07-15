@@ -3,71 +3,94 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>Forum Thread Q&A</title>
+  <title>Forum Q&A</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      margin: 2rem;
+      margin: 2rem auto;
       max-width: 800px;
     }
 
-    textarea {
-      width: 100%;
-      height: 100px;
-    }
-
+    textarea,
     input[type="text"],
     select {
       width: 100%;
+      margin: 0.5rem 0;
       padding: 0.5rem;
-      margin-bottom: 1rem;
-      box-sizing: border-box;
     }
 
     button {
-      padding: 0.5rem 1rem;
       margin-top: 1rem;
+      padding: 0.5rem 1rem;
     }
 
     pre {
+      white-space: pre-wrap;
       background: #f4f4f4;
       padding: 1rem;
-      white-space: pre-wrap;
     }
   </style>
 </head>
 
 <body>
-  <h1>Forum Thread Q&A</h1>
+  <h1>Ask a Question About a Forum Thread</h1>
 
-  <form method="post">
-    <label for="url">Select existing thread or enter new URL:</label><br />
-    <select id="existing_thread" onchange="document.getElementById('url').value = this.value;">
-      <option value="">-- Select a saved thread --</option>
+  <form id="qaForm">
+    <label>Select existing thread:</label>
+    <select id="existing" name="url">
+      <option value="">-- Choose a thread --</option>
       {% for thread in threads %}
-      <option value="https://fuckcombustion.com/threads/{{ thread }}/" {% if selected_thread_url and
-        selected_thread_url.endswith(thread) %}selected{% endif %}>
-        {{ thread }}
-      </option>
+      <option value="{{ thread }}">{{ thread }}</option>
       {% endfor %}
-    </select><br />
+    </select>
 
-    <input id="url" name="url" type="text" placeholder="https://fuckcombustion.com/threads/phase3-vaporizers.48407"
-      required value="{{ selected_thread_url or '' }}" /><br />
+    <label>Or enter new thread URL:</label>
+    <input type="text" id="url" name="url" placeholder="https://example.com/thread" />
 
-    <label for="prompt">Your Question about the thread:</label><br />
-    <textarea id="prompt" name="prompt" placeholder="Ask your question here..."></textarea><br />
+    <label>Your Question:</label>
+    <textarea name="prompt" required></textarea>
 
-    <button type="submit" name="action" value="ask">Ask</button>
-    <button type="submit" name="refresh" value="true"
-      onclick="document.getElementsByName('refresh')[0].value='true'">Refresh Thread Data</button>
-    <input type="hidden" name="refresh" value="false" />
+    <label><input type="checkbox" name="refresh" value="true" /> Refresh/Redownload</label><br />
+
+    <button type="submit">Ask</button>
   </form>
 
-  {% if response %}
-  <h2>Response:</h2>
-  <pre>{{ response }}</pre>
-  {% endif %}
+  <h2>Answer:</h2>
+  <pre id="response"></pre>
+
+  <script>
+    const form = document.getElementById("qaForm");
+    const responseBox = document.getElementById("response");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      responseBox.textContent = "Thinking...";
+
+      const formData = new FormData(form);
+      const selected = form.elements["existing"].value;
+      const custom = form.elements["url"].value;
+
+      if (!custom && selected) {
+        formData.set("url", selected);
+      }
+
+      const res = await fetch("/ask", {
+        method: "POST",
+        body: formData,
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      responseBox.textContent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        responseBox.textContent += decoder.decode(value, { stream: true });
+      }
+    });
+  </script>
 </body>
 
 </html>
