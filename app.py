@@ -145,14 +145,33 @@ def ask():
             def generate():
                 import json
 
-                for line in res.iter_lines():
-                    if line:
-                        try:
-                            chunk = json.loads(line)
-                            if "response" in chunk:
-                                yield chunk["response"]
-                        except Exception as e:
-                            logger.warning(f"Error parsing Ollama chunk: {e}")
+                buffer = ""
+                for chunk in res.iter_content(chunk_size=1024):
+                    text = chunk.decode("utf-8")
+                    buffer += text
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        if line.strip():
+                            logger.debug(f"Received line: {line}")
+                            try:
+                                chunk_json = json.loads(line)
+                                logger.debug(f"Parsed chunk JSON: {chunk_json}")
+                                if "response" in chunk_json:
+                                    yield chunk_json["response"]
+                            except Exception as e:
+                                logger.warning(
+                                    f"Could not parse line: {line} error: {e}"
+                                )
+                # Try parse any remaining buffer
+                if buffer.strip():
+                    try:
+                        chunk_json = json.loads(buffer)
+                        if "response" in chunk_json:
+                            yield chunk_json["response"]
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not parse final buffer: {buffer} error: {e}"
+                        )
                 yield "\n"
 
             return Response(generate(), content_type="text/plain")
