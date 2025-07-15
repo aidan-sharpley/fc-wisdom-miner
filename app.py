@@ -1,86 +1,167 @@
+import logging
 import os
-from typing import Any, Dict, Optional
+from typing import List, Optional
 
 import requests
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, render_template, request
 
 from fetch_forum import detect_last_page, fetch_forum_pages
-from preprocess import load_thread_text, preprocess_thread
+from preprocess import clean_html_file
 
 app = Flask(__name__)
-
-TMP_DIR = "tmp"
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "llama3.1:8b"
+# OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_MODEL = "deepseek-r1:1.5b"
+BASE_TMP_DIR = "tmp"
+
+# Setup logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
-def list_threads() -> list[str]:
-    if not os.path.exists(TMP_DIR):
+def get_thread_dir(thread_url: str) -> str:
+    thread_key = thread_url.rstrip("/").split("/")[-1]
+    thread_dir = os.path.join(BASE_TMP_DIR, thread_key)
+    os.makedirs(thread_dir, exist_ok=True)
+    logger.debug(f"Thread directory resolved: {thread_dir}")
+    return thread_dir
+
+
+def list_threads() -> List[str]:
+    if not os.path.exists(BASE_TMP_DIR):
+        logger.debug(f"Base tmp dir '{BASE_TMP_DIR}' does not exist.")
         return []
-    return sorted(
-        [d for d in os.listdir(TMP_DIR) if os.path.isdir(os.path.join(TMP_DIR, d))]
-    )
+    dirs = [
+        d
+        for d in os.listdir(BASE_TMP_DIR)
+        if os.path.isdir(os.path.join(BASE_TMP_DIR, d))
+    ]
+    logger.debug(f"Available threads: {dirs}")
+    return sorted(dirs)
 
 
-def call_ollama(prompt: str) -> str:
-    payload: Dict[str, Any] = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
-    try:
-        res = requests.post(OLLAMA_API_URL, json=payload, timeout=60)
-        res.raise_for_status()
-        data = res.json()
-        return data.get("response", "[No response]")
-    except Exception as e:
-        return f"[Error communicating with Ollama: {e}]"
+def preprocess_thread(thread_dir: str, force: bool = False) -> None:
+    logger.info(f"Preprocessing thread in {thread_dir}, force={force}")
+    for filename in os.listdir(thread_dir):
+        if filename.endswith(".html"):
+            input_path = os.path.join(thread_dir, filename)
+            output_path = os.path.join(thread_dir, filename.replace(".html", ".txt"))
+            if force or not os.path.exists(output_path):
+                logger.debug(f"Cleaning HTML file {input_path} -> {output_path}")
+                clean_html_file(input_path, output_path)
+            else:
+                logger.debug(f"Skipping preprocessing for existing {output_path}")
+
+
+def load_thread_text(thread_dir: str) -> str:
+    texts: List[str] = []
+    logger.debug(f"Loading .txt files from {thread_dir}")
+    for fname in sorted(os.listdir(thread_dir)):
+        if fname.endswith(".txt"):
+            path = os.path.join(thread_dir, fname)
+            logger.debug(f"Reading {path}")
+            with open(path, encoding="utf-8") as f:
+                texts.append(f.read())
+    combined_text = "\n\n".join(texts)
+    logger.debug(f"Loaded combined text length: {len(combined_text)}")
+    return combined_text
 
 
 @app.route("/", methods=["GET", "POST"])
-def index() -> str:
+def index():
     threads = list_threads()
-    response_text: str = ""
-    selected_thread: Optional[str] = None
-    question: str = ""
+    response_text: Optional[str] = None
+    selected_thread_url: Optional[str] = None
 
     if request.method == "POST":
-        action = request.form.get("action")
-        if action == "add_thread":
-            base_url = request.form.get("new_url", "").strip()
-            if base_url:
-                # Extract thread id from url (last part after .)
-                # Example: https://fuckcombustion.com/threads/phase3-vaporizers.48407
-                thread_id = base_url.rstrip("/").split(".")[-1]
-                thread_dir = os.path.join(TMP_DIR, thread_id)
-                if not os.path.exists(thread_dir):
-                    os.makedirs(thread_dir, exist_ok=True)
-                    last_page = detect_last_page(base_url)
-                    fetch_forum_pages(base_url, thread_id, 1, last_page)
-                    preprocess_thread(thread_dir)
-                return redirect(url_for("index", thread=thread_id))
-        elif action == "ask_question":
-            selected_thread = request.form.get("thread_select")
-            question = request.form.get("prompt", "").strip()
-            if selected_thread and question:
-                thread_dir = os.path.join(TMP_DIR, selected_thread)
-                if os.path.exists(thread_dir):
-                    context = load_thread_text(thread_dir)
-                    system_prompt = (
-                        "You are an expert forum analyst. Based on the following anonymized forum content, "
-                        "answer the user's question with clear reasoning.\n\n"
-                        f"{context}\n\n"
-                        f"Question: {question}"
-                    )
-                    response_text = call_ollama(system_prompt)
+        base_url = request.form["url"].strip()
+        user_prompt = request.form.get("prompt", "").strip()
+        refresh = request.form.get("refresh", "") == "true"
+        selected_thread_url = base_url
 
-    else:
-        selected_thread = request.args.get("thread")
+        logger.info(f"User requested URL: {base_url} (refresh={refresh})")
+        thread_dir = get_thread_dir(base_url)
+
+        has_html = any(f.endswith(".html") for f in os.listdir(thread_dir))
+        logger.debug(f"HTML files exist in thread dir: {has_html}")
+
+        try:
+            if refresh:
+                if not has_html:
+                    logger.info("No HTML found, fetching pages...")
+                    last_page = detect_last_page(base_url)
+                    logger.info(f"Detected last page: {last_page}")
+                    fetch_forum_pages(
+                        base_url, start=1, end=last_page, save_dir=thread_dir
+                    )
+                logger.info("Preprocessing all HTML files (force=True)...")
+                preprocess_thread(thread_dir, force=True)
+            else:
+                if not has_html:
+                    logger.info("No HTML found, fetching pages...")
+                    last_page = detect_last_page(base_url)
+                    logger.info(f"Detected last page: {last_page}")
+                    fetch_forum_pages(
+                        base_url, start=1, end=last_page, save_dir=thread_dir
+                    )
+                    preprocess_thread(thread_dir, force=False)
+
+            context = load_thread_text(thread_dir)
+
+            if user_prompt:
+                logger.info(
+                    f"Sending prompt to Ollama, prompt length: {len(user_prompt)}"
+                )
+                system_prompt = (
+                    "You are an expert forum analyst. Based on the following anonymized forum content, "
+                    "answer the user's question with clear reasoning.\n\n"
+                    f"{context}\n\n"
+                    f"Question: {user_prompt}"
+                )
+
+                payload = {
+                    "model": OLLAMA_MODEL,
+                    "prompt": system_prompt,
+                    "stream": False,  # Change to False unless you handle streaming
+                }
+                res = requests.post(OLLAMA_API_URL, json=payload)
+
+                if res.ok:
+                    try:
+                        data = res.json()
+                        logger.debug(f"Ollama raw response JSON: {data}")
+                        response_text = data.get("response")
+                        if not response_text:
+                            logger.warning(
+                                "Ollama response key 'response' missing or empty"
+                            )
+                            response_text = "[No response content from Ollama]"
+                    except Exception as e:
+                        logger.error(f"Error decoding JSON from Ollama: {e}")
+                        response_text = "[Error decoding Ollama response]"
+                    logger.info("Received response from Ollama")
+                else:
+                    logger.error(f"Ollama API error: {res.status_code} {res.text}")
+                    response_text = "[Error communicating with Ollama]"
+            else:
+                logger.debug("No user prompt provided, skipping Ollama request.")
+                response_text = None
+
+        except Exception as e:
+            logger.exception("Exception occurred during request processing")
+            response_text = f"[Error processing request: {e}]"
 
     return render_template(
         "index.html",
         threads=threads,
         response=response_text,
-        selected_thread=selected_thread,
-        question=question,
+        selected_thread_url=selected_thread_url,
     )
 
 
 if __name__ == "__main__":
+    logger.info("Starting Flask app on 0.0.0.0:8080")
     app.run(host="0.0.0.0", port=8080, debug=True)
