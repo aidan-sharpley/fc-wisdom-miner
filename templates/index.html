@@ -29,6 +29,17 @@
       max-height: 400px;
       overflow-y: auto;
     }
+
+    /* -- NEW STYLES FOR DELETE BUTTON LAYOUT -- */
+    .thread-selection {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #delete-thread-btn {
+      padding: 5px 10px;
+    }
   </style>
 </head>
 
@@ -37,12 +48,16 @@
 
   <form id="ask-form">
     <label for="thread-select">Or select an existing thread:</label>
-    <select id="thread-select" name="existing_thread">
-      <option value="">-- select a thread --</option>
-      {% for thread in threads %}
-      <option value="{{ thread }}">{{ thread }}</option>
-      {% endfor %}
-    </select>
+    <div class="thread-selection">
+      <select id="thread-select" name="existing_thread">
+        <option value="">-- select a thread --</option>
+        {% for thread in threads %}
+        <option value="{{ thread }}">{{ thread }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" id="delete-thread-btn" disabled>Delete</button>
+    </div>
+
 
     <label for="url">Or enter thread URL:</label>
     <input type="text" id="url" name="url" placeholder="https://example.com/thread/12345" style="width: 100%;" />
@@ -63,15 +78,76 @@
     const responseEl = document.getElementById("response");
     const urlInput = document.getElementById("url");
     const threadSelect = document.getElementById("thread-select");
+    const deleteBtn = document.getElementById("delete-thread-btn"); // <-- Get delete button
 
+    // -- UPDATED JAVASCRIPT LOGIC --
+
+    // Function to reset the UI state
+    function resetUI() {
+      urlInput.value = "";
+      threadSelect.value = "";
+      prompt.value = "";
+      responseEl.textContent = "";
+      deleteBtn.disabled = true;
+    }
+
+    // Handle thread selection changes
     threadSelect.addEventListener("change", () => {
-      if (threadSelect.value) urlInput.value = "";
+      const selected = threadSelect.value;
+      deleteBtn.disabled = !selected; // Enable delete button if a thread is selected
+
+      if (selected) {
+        urlInput.value = ""; // Clear URL input if a thread is selected
+        responseEl.textContent = `Context for '${selected}' is ready. Ask your question.`;
+      } else {
+        // If user selects "-- select a thread --", reset context
+        responseEl.textContent = "Please select or enter a thread.";
+      }
     });
 
+    // Handle URL input changes
     urlInput.addEventListener("input", () => {
-      if (urlInput.value.trim() !== "") threadSelect.value = "";
+      if (urlInput.value.trim() !== "") {
+        threadSelect.value = "";
+        deleteBtn.disabled = true;
+      }
     });
 
+    // Handle deleting a thread
+    deleteBtn.addEventListener("click", async () => {
+      const thread_key = threadSelect.value;
+      if (!thread_key) return;
+
+      if (!confirm(`Are you sure you want to delete the thread '${thread_key}'? This cannot be undone.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch("/delete_thread", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ thread_key }),
+        });
+
+        const resultText = await res.text();
+        if (!res.ok) {
+          alert(`Error: ${resultText}`);
+        } else {
+          alert(resultText);
+          // Remove the option from the dropdown
+          const optionToRemove = threadSelect.querySelector(`option[value="${thread_key}"]`);
+          if (optionToRemove) {
+            optionToRemove.remove();
+          }
+          resetUI();
+        }
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    });
+
+
+    // Handle form submission
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
@@ -89,7 +165,7 @@
       if (existing_thread) payload.existing_thread = existing_thread;
       else payload.url = url;
 
-      responseEl.textContent = "";
+      responseEl.textContent = "Asking...";
       form.querySelector("button[type=submit]").disabled = true;
 
       try {
@@ -107,6 +183,7 @@
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
+        responseEl.textContent = ""; // Clear "Asking..." message
 
         while (true) {
           const { done, value } = await reader.read();

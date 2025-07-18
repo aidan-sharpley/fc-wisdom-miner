@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import shutil  # <-- Import shutil for directory deletion
 from typing import List
 
 import requests
@@ -14,9 +15,7 @@ from preprocess import clean_html_file
 app = Flask(__name__)
 app.secret_key = "replace-with-a-secure-random-secret"
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-# OLLAMA_MODEL = "phi3:3.8b"
 OLLAMA_MODEL = "deepseek-r1:1.5b"
-# OLLAMA_MODEL = "llama3.1:8b" unusable
 BASE_TMP_DIR = "tmp"
 
 logging.basicConfig(
@@ -48,25 +47,16 @@ def list_threads() -> List[str]:
 
 
 def clean_post_content(raw: str) -> str:
-    # Unescape HTML entities
     text = html.unescape(raw)
-
-    # Remove all quote blocks like:
-    #    username said:\n content \nClick to expand...
     text = re.sub(
         r"(?:^|\n)\s*\w+\s+said:\s*\n.*?(?:Click to expand\.\.\.)?",
         "",
         text,
         flags=re.DOTALL,
     )
-
-    # Remove remaining "Click to expand..." anywhere
     text = re.sub(r"Click to expand\.\.\.", "", text)
-
-    # Normalize spacing
     text = re.sub(r"[\t ]+", " ", text)
     text = re.sub(r"\n{2,}", "\n", text).strip()
-
     return text
 
 
@@ -164,38 +154,16 @@ def ask():
     context = load_thread_text(thread_dir)
     logger.debug(f"Loaded context length: {len(context)}")
 
-    system_prompt = f"""
-        You are an expert forum analyst helping a user explore a forum thread that contains multiple posts per page and multiple pages within the thread.
+    # -- REFINED SYSTEM PROMPT FOR BETTER ACCURACY AND SPEED --
+    system_prompt = f"""You are an expert forum analyst. Your task is to answer the user's question based *only* on the provided context from a forum thread. Be concise and helpful.
 
-        The user will ask questions about the thread, which consists of posts with metadata in JSON format: each post has a page number, ISO date, and textual content.
-        
-        Use this metadata format for posts within the combined context: '{{"page": 1, "date": "2020-03-12T23:22:56-0400", "content": "If when you choose to sell any, you'll need to let us know in advance in order to set you up as a commercial account, ok? Great work!"}}'
+---CONTEXT---
+{context}
+---END CONTEXT---
 
-        By default, provide clear, conversational, helpful answers that address the user's question directly without excessive explanation.
-
-        If the user asks for detailed reasoning or evidence, then provide supporting post metadata including the post date and a direct link to the post on the forum. Construct post links by appending the post ID (if available) to the base URL: 
-        https://fuckcombustion.com/threads/phase3-vaporizers.48407/post-{{post_id}}.
-
-        Use the anonymized content for context and keep answers friendly and expert.
-        
-        All responses should be in English, even if the original posts are in another language.
-        
-        If the user asks for a summary, provide a concise overview of the thread's main points and discussions.
-        
-        If the user asks for a list of posts, provide a numbered list with brief summaries of each post.
-        
-        If the user asks for a specific post, provide the post's content along with its metadata.
-        
-        If the user asks for a specific page, provide a summary of that page's posts.
-        
-        All responses should be concise, relevant, and directly address the user's question.
-        ---
-        Context is provided below. Use it to answer the user's question, but do not repeat the context verbatim in your response.
-        <<{context}>>
-        ---
-        Everything below this line and between the "<<>>" is the user's question. Do not include it in your response.
-        <<{prompt}>>
-        """
+Based on the context above, answer the following question:
+{prompt}
+"""
 
     payload = {
         "model": OLLAMA_MODEL,
@@ -221,6 +189,31 @@ def ask():
         yield "\n"
 
     return Response(stream_response(), content_type="text/plain")
+
+
+# -- NEW ENDPOINT TO DELETE A THREAD --
+@app.route("/delete_thread", methods=["POST"])
+def delete_thread():
+    data = request.get_json()
+    thread_key = data.get("thread_key", "").strip()
+    if not thread_key:
+        return "Thread key is required", 400
+
+    # Basic security check to prevent directory traversal
+    if ".." in thread_key or "/" in thread_key:
+        return "Invalid thread key", 400
+
+    thread_dir = os.path.join(BASE_TMP_DIR, thread_key)
+    if os.path.exists(thread_dir):
+        try:
+            shutil.rmtree(thread_dir)
+            logger.info(f"Deleted thread directory: {thread_dir}")
+            return f"Thread '{thread_key}' deleted successfully.", 200
+        except Exception as e:
+            logger.error(f"Error deleting thread {thread_key}: {e}")
+            return f"Error deleting thread: {e}", 500
+    else:
+        return "Thread not found", 404
 
 
 if __name__ == "__main__":
