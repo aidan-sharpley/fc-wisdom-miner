@@ -2,24 +2,37 @@ import html
 import json
 import logging
 import os
+import pickle
 import re
-import shutil  # <-- Import shutil for directory deletion
-from typing import List
+import shutil
+from typing import Dict, List
 
+import numpy as np
 import requests
 from flask import Flask, Response, render_template, request
 
-from fetch_forum import detect_last_page, fetch_forum_pages
-from preprocess import clean_html_file
+# These imports are from your original files, ensure they are present
+from fetch_forum import (
+    detect_last_page,
+    fetch_forum_pages,
+)
+from preprocess import (
+    BeautifulSoup,
+    extract_content,
+    extract_date,
+)
 
 app = Flask(__name__)
 app.secret_key = "replace-with-a-secure-random-secret"
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
+OLLAMA_EMBED_API_URL = "http://localhost:11434/api/embeddings"
 OLLAMA_MODEL = "deepseek-r1:1.5b"
+OLLAMA_EMBED_MODEL = "nomic-embed-text"
 BASE_TMP_DIR = "tmp"
+INDEX_FILE_NAME = "index.pkl"
 
 logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -61,62 +74,103 @@ def clean_post_content(raw: str) -> str:
 
 
 def preprocess_thread(thread_dir: str, force: bool = False) -> None:
-    combined_path = os.path.join(thread_dir, "combined.jsonl")
-    all_posts = []
+    """
+    Processes HTML files, cleans content, and creates a searchable vector index.
+    """
+    index_path = os.path.join(thread_dir, INDEX_FILE_NAME)
+    if not force and os.path.exists(index_path):
+        logger.info(f"Index already exists for {thread_dir}, skipping preprocessing.")
+        return
 
+    # Step 1: Extract posts from HTML
+    raw_posts = []
     for filename in sorted(os.listdir(thread_dir)):
         if filename.endswith(".html"):
             input_path = os.path.join(thread_dir, filename)
-            output_path = os.path.join(thread_dir, filename.replace(".html", ".txt"))
-            if force or not os.path.exists(output_path):
-                logger.debug(f"Cleaning {input_path}")
-                match = re.search(r"page_(\d+)\.html", filename)
-                page_number = int(match.group(1)) if match else -1
-                clean_html_file(input_path, output_path, page_number)
+            match = re.search(r"page_(\d+)\.html", filename)
+            page_num = int(match.group(1)) if match else -1
 
-    for filename in sorted(os.listdir(thread_dir)):
-        if filename.endswith(".txt"):
-            with open(os.path.join(thread_dir, filename), encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        post = json.loads(line.strip())
-                        content = post.get("content", "")
-                        if not content:
-                            continue
-                        cleaned = clean_post_content(content)
-                        if not cleaned:
-                            continue
-                        post["content"] = cleaned
-                        all_posts.append(post)
-                    except Exception as e:
-                        logger.warning(f"Skipping invalid post in {filename}: {e}")
+            with open(input_path, encoding="utf-8") as f:
+                soup = BeautifulSoup(f, "html.parser")
+            post_elements = soup.select("article.message")
 
-    with open(combined_path, "w", encoding="utf-8") as f:
-        for post in all_posts:
-            compact = {
-                "date": post["date"],
-                "page": post["page"],
-                "content": post["content"],
-            }
-            f.write(json.dumps(compact, ensure_ascii=False) + "\n")
+            for post_el in post_elements:
+                content_str = extract_content(post_el)
+                if content_str.strip():
+                    raw_posts.append(
+                        {
+                            "page": page_num,
+                            "date": extract_date(post_el),
+                            "content": clean_post_content(content_str),
+                        }
+                    )
 
-    logger.info(f"Optimally combined {len(all_posts)} posts into {combined_path}")
+    all_posts = [p for p in raw_posts if p.get("content")]
+    if not all_posts:
+        logger.warning(f"No content found in thread {thread_dir}")
+        return
+
+    logger.info(f"Found {len(all_posts)} posts. Now creating embeddings...")
+
+    # Step 2: Create embeddings for each post
+    embeddings = []
+    for i, post in enumerate(all_posts):
+        logger.info(f"Embedding post {i + 1}/{len(all_posts)}")
+        try:
+            res = requests.post(
+                OLLAMA_EMBED_API_URL,
+                json={"model": OLLAMA_EMBED_MODEL, "prompt": post["content"]},
+            )
+            res.raise_for_status()
+            embedding = res.json()["embedding"]
+            embeddings.append(embedding)
+        except requests.RequestException as e:
+            logger.error(f"Failed to create embedding for post {i}: {e}")
+            embeddings.append([0] * len(embeddings[0]) if embeddings else [])
+
+    # Step 3: Save the posts and their embeddings to the index file
+    with open(index_path, "wb") as f:
+        pickle.dump({"posts": all_posts, "embeddings": np.array(embeddings)}, f)
+
+    logger.info(f"Successfully created and saved search index to {index_path}")
 
 
-def load_thread_text(thread_dir: str) -> str:
-    combined_path = os.path.join(thread_dir, "combined.jsonl")
-    lines = []
+def find_relevant_posts(query: str, thread_index: Dict, top_k: int = 5) -> List[Dict]:
+    """
+    Finds the most relevant posts from a thread index based on a query.
+    """
+    if (
+        not thread_index
+        or "embeddings" not in thread_index
+        or len(thread_index["embeddings"]) == 0
+    ):
+        return []
 
-    with open(combined_path, encoding="utf-8") as f:
-        for line in f:
-            try:
-                post = json.loads(line.strip())
-                lines.append(
-                    f"[Page {post['page']}] {post['date']}:\n{post['content']}"
-                )
-            except Exception as e:
-                logger.warning(f"Malformed line: {e}")
-    return "\n\n".join(lines)
+    # 1. Get embedding for the user's query
+    try:
+        res = requests.post(
+            OLLAMA_EMBED_API_URL,
+            json={"model": OLLAMA_EMBED_MODEL, "prompt": query},
+        )
+        res.raise_for_status()
+        query_embedding = np.array(res.json()["embedding"])
+    except requests.RequestException as e:
+        logger.error(f"Failed to create embedding for query: {e}")
+        return []
+
+    # 2. Calculate cosine similarity
+    post_embeddings = thread_index["embeddings"]
+    dot_products = np.dot(post_embeddings, query_embedding)
+    norms = np.linalg.norm(post_embeddings, axis=1) * np.linalg.norm(query_embedding)
+
+    similarities = dot_products / np.where(norms == 0, 1e-9, norms)
+
+    # 3. Get the indices of the top_k most similar posts
+    top_k_indices = np.argsort(similarities)[-top_k:][::-1]
+
+    # 4. Return the corresponding posts
+    relevant_posts = [thread_index["posts"][i] for i in top_k_indices]
+    return relevant_posts
 
 
 @app.route("/")
@@ -137,25 +191,47 @@ def ask():
 
     if existing_thread:
         thread_key = existing_thread
-        thread_dir = get_thread_dir(thread_key)
-        if refresh:
-            preprocess_thread(thread_dir, force=True)
     elif url:
         url = normalize_url(url)
         thread_key = url.rstrip("/").split("/")[-1]
-        thread_dir = get_thread_dir(thread_key)
-        if refresh or not any(f.endswith(".html") for f in os.listdir(thread_dir)):
-            last_page = detect_last_page(url)
-            fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
-            preprocess_thread(thread_dir, force=True)
     else:
         return "Must provide a thread", 400
 
-    context = load_thread_text(thread_dir)
-    logger.debug(f"Loaded context length: {len(context)}")
+    thread_dir = get_thread_dir(thread_key)
+    index_path = os.path.join(thread_dir, INDEX_FILE_NAME)
 
-    # -- REFINED SYSTEM PROMPT FOR BETTER ACCURACY AND SPEED --
-    system_prompt = f"""You are an expert forum analyst. Your task is to answer the user's question based *only* on the provided context from a forum thread. Be concise and helpful.
+    if refresh or not os.path.exists(index_path):
+        if refresh or not any(f.endswith(".html") for f in os.listdir(thread_dir)):
+            logger.info(f"Fetching HTML pages for {thread_key}...")
+            last_page = detect_last_page(url)
+            fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
+
+        logger.info(f"Preprocessing thread and building index for {thread_key}...")
+        preprocess_thread(thread_dir, force=True)
+
+    try:
+        with open(index_path, "rb") as f:
+            thread_index = pickle.load(f)
+    except (IOError, pickle.PickleError) as e:
+        logger.error(f"Could not load index file {index_path}: {e}")
+        return (
+            f"Error: Could not load data for thread '{thread_key}'. Please try refreshing.",
+            500,
+        )
+
+    logger.info(f"Searching for context relevant to: '{prompt}'")
+    relevant_posts = find_relevant_posts(prompt, thread_index)
+
+    if not relevant_posts:
+        context = "No relevant information found in the thread for this question."
+    else:
+        context = "\n\n---\n\n".join(
+            f"[Page {p['page']}] {p['date']}:\n{p['content']}" for p in relevant_posts
+        )
+
+    logger.debug(f"Context being sent to LLM:\n{context}")
+
+    system_prompt = f"""You are an expert forum analyst. Your task is to answer the user's question based *only* on the provided context. The context consists of the most relevant posts from a forum thread. Be concise and helpful.
 
 ---CONTEXT---
 {context}
@@ -174,16 +250,16 @@ Based on the context above, answer the following question:
     def stream_response():
         try:
             with requests.post(OLLAMA_API_URL, json=payload, stream=True) as res:
+                res.raise_for_status()
                 for line in res.iter_lines(decode_unicode=True):
                     if line:
                         try:
                             chunk = json.loads(line)
                             if "response" in chunk:
-                                text = chunk["response"]
-                                yield text
-                        except Exception as e:
-                            logger.warning(f"Chunk error: {e} -- line: {line}")
-        except Exception as e:
+                                yield chunk["response"]
+                        except json.JSONDecodeError:
+                            logger.warning(f"Skipping malformed line: {line}")
+        except requests.RequestException as e:
             logger.error(f"Stream exception: {e}")
             yield f"[Streaming error: {e}]"
         yield "\n"
@@ -191,18 +267,14 @@ Based on the context above, answer the following question:
     return Response(stream_response(), content_type="text/plain")
 
 
-# -- NEW ENDPOINT TO DELETE A THREAD --
 @app.route("/delete_thread", methods=["POST"])
 def delete_thread():
     data = request.get_json()
     thread_key = data.get("thread_key", "").strip()
     if not thread_key:
         return "Thread key is required", 400
-
-    # Basic security check to prevent directory traversal
     if ".." in thread_key or "/" in thread_key:
         return "Invalid thread key", 400
-
     thread_dir = os.path.join(BASE_TMP_DIR, thread_key)
     if os.path.exists(thread_dir):
         try:
@@ -217,5 +289,8 @@ def delete_thread():
 
 
 if __name__ == "__main__":
+    logger.info(
+        f"Make sure you have the Ollama embedding model: 'ollama pull {OLLAMA_EMBED_MODEL}'"
+    )
     logger.info("Launching app at http://0.0.0.0:8080")
     app.run(host="0.0.0.0", port=8080, debug=True)
