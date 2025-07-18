@@ -219,15 +219,42 @@ def ask():
     thread_dir = get_thread_dir(thread_key)
     index_path = os.path.join(thread_dir, INDEX_FILE_NAME)
 
-    if refresh or not os.path.exists(index_path):
-        if refresh or not any(f.endswith(".html") for f in os.listdir(thread_dir)):
-            logger.info(f"Fetching HTML pages for {thread_key}...")
-            logger.debug(f"URL provided: {url}")
-            last_page = detect_last_page(url)
-            fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
+    # Check if HTML files already exist in the thread directory
+    html_files_exist = any(f.endswith(".html") for f in os.listdir(thread_dir))
 
+    should_fetch_html = False
+    if not html_files_exist:
+        # Only fetch HTML if no HTML files are found (e.g., thread was just added or deleted)
+        should_fetch_html = True
+        logger.info(f"No HTML files found for {thread_key}. Fetching HTML pages...")
+    elif refresh:
+        # If HTML files exist AND refresh is true, we skip HTML fetching but force preprocessing
+        logger.info(f"Refresh requested for {thread_key}. Skipping HTML re-fetch.")
+    else:
+        # If HTML files exist and no refresh, check if index exists to decide on preprocessing
+        pass  # No explicit action here, `needs_preprocessing` logic below handles it.
+
+    needs_preprocessing = False
+    if should_fetch_html:
+        # If we just fetched HTML, we definitely need to preprocess
+        needs_preprocessing = True
+        logger.debug(f"URL provided for fetching: {url}")
+        last_page = detect_last_page(url)
+        fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
+    elif refresh:
+        # If refresh is true AND HTML already exists, force reprocessing
+        needs_preprocessing = True
+    elif not os.path.exists(index_path):
+        # If index doesn't exist but HTML does, preprocess to create index
+        needs_preprocessing = True
+
+    if needs_preprocessing:
         logger.info(f"Preprocessing thread and building index for {thread_key}...")
-        preprocess_thread(thread_dir, force=True)
+        preprocess_thread(thread_dir, force=True)  # Always force when reprocessing
+    else:
+        logger.info(
+            f"Index already exists and no refresh requested for {thread_key}, skipping processing."
+        )
 
     try:
         with open(index_path, "rb") as f:

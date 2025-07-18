@@ -74,4 +74,4 @@ def fetch_forum_pages(base_url: str, start: int, end: int, save_dir: str) -> Non
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(res.text)
 
-        time.sleep(1)
+        time.sleep(0.5)
