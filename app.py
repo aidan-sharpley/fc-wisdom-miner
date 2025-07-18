@@ -85,6 +85,7 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     # Step 1: Extract posts from HTML
     raw_posts = []
     for filename in sorted(os.listdir(thread_dir)):
+        logger.info(f"Processing file: {filename}")
         if filename.endswith(".html"):
             input_path = os.path.join(thread_dir, filename)
             match = re.search(r"page_(\d+)\.html", filename)
@@ -114,6 +115,8 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
 
     # Step 2: Create embeddings for each post
     embeddings = []
+    processed_posts = []  # Keep track of posts that successfully get embeddings
+
     for i, post in enumerate(all_posts):
         logger.info(f"Embedding post {i + 1}/{len(all_posts)}")
         try:
@@ -124,15 +127,27 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
             res.raise_for_status()
             embedding = res.json()["embedding"]
             embeddings.append(embedding)
+            processed_posts.append(post)  # Only add post if embedding was successful
         except requests.RequestException as e:
-            logger.error(f"Failed to create embedding for post {i}: {e}")
-            embeddings.append([0] * len(embeddings[0]) if embeddings else [])
+            logger.error(
+                f"Failed to create embedding for post {i} (page {post.get('page', 'N/A')}): {e}. Skipping post."
+            )
+            # Do NOT append a zero array; simply skip this post.
+            continue  # Move to the next post
 
     # Step 3: Save the posts and their embeddings to the index file
-    with open(index_path, "wb") as f:
-        pickle.dump({"posts": all_posts, "embeddings": np.array(embeddings)}, f)
-
-    logger.info(f"Successfully created and saved search index to {index_path}")
+    if processed_posts:  # Only save if there are successfully embedded posts
+        with open(index_path, "wb") as f:
+            pickle.dump(
+                {"posts": processed_posts, "embeddings": np.array(embeddings)}, f
+            )
+        logger.info(
+            f"Successfully created and saved search index to {index_path} with {len(processed_posts)} posts."
+        )
+    else:
+        logger.warning(
+            f"No posts successfully embedded for {thread_dir}. Index not created."
+        )
 
 
 def find_relevant_posts(query: str, thread_index: Dict, top_k: int = 5) -> List[Dict]:
@@ -197,12 +212,17 @@ def ask():
     else:
         return "Must provide a thread", 400
 
+    if not thread_key:
+        logger.error("URL or thread is missing or empty.")
+        return "Invalid thread or URL", 400
+
     thread_dir = get_thread_dir(thread_key)
     index_path = os.path.join(thread_dir, INDEX_FILE_NAME)
 
     if refresh or not os.path.exists(index_path):
         if refresh or not any(f.endswith(".html") for f in os.listdir(thread_dir)):
             logger.info(f"Fetching HTML pages for {thread_key}...")
+            logger.debug(f"URL provided: {url}")
             last_page = detect_last_page(url)
             fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
 

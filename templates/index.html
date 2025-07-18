@@ -149,54 +149,58 @@
 
     // Handle form submission
     form.addEventListener("submit", async (e) => {
-      e.preventDefault();
+        e.preventDefault();
 
-      const prompt = document.getElementById("prompt").value.trim();
-      const url = urlInput.value.trim();
-      const existing_thread = threadSelect.value.trim();
-      const refresh = document.getElementById("refresh").checked;
+        const prompt = document.getElementById("prompt").value.trim();
+        const url = urlInput.value.trim();
+        const existing_thread = threadSelect.value.trim();
+        const refresh = document.getElementById("refresh").checked;
 
-      if (!prompt || (!url && !existing_thread)) {
-        alert("Please enter a prompt and either a thread or URL.");
-        return;
-      }
-
-      const payload = { prompt, refresh };
-      if (existing_thread) payload.existing_thread = existing_thread;
-      else payload.url = url;
-
-      responseEl.textContent = "Asking...";
-      form.querySelector("button[type=submit]").disabled = true;
-
-      try {
-        const res = await fetch("/ask", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          responseEl.textContent = `Error: ${errorText}`;
+        if (!prompt || (!url && !existing_thread)) {
+          alert("Please enter a prompt and either a thread or URL.");
           return;
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        responseEl.textContent = ""; // Clear "Asking..." message
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          responseEl.textContent += decoder.decode(value, { stream: true });
-          responseEl.scrollTop = responseEl.scrollHeight;
+        // Build the payload
+        const payload = { prompt, refresh };
+        if (existing_thread) {
+          payload.existing_thread = existing_thread;
+        } else if (url) {
+          payload.url = url;
         }
-      } catch (err) {
-        responseEl.textContent = `Error: ${err.message}`;
-      } finally {
-        form.querySelector("button[type=submit]").disabled = false;
-      }
-    });
+
+        responseEl.textContent = "Asking...";
+        form.querySelector("button[type=submit]").disabled = true;
+
+        try {
+          const res = await fetch("/ask", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!res.ok) {
+            const errorText = await res.text();
+            responseEl.textContent = `Error: ${errorText}`;
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          responseEl.textContent = ""; // Clear "Asking..." message
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            responseEl.textContent += decoder.decode(value, { stream: true });
+            responseEl.scrollTop = responseEl.scrollHeight;
+          }
+        } catch (err) {
+          responseEl.textContent = `Error: ${err.message}`;
+        } finally {
+          form.querySelector("button[type=submit]").disabled = false;
+        }
+      });
   </script>
 </body>
 
