@@ -16,7 +16,13 @@ from flask import Flask, Response, render_template, request
 from tqdm import tqdm
 
 from fetch_forum import detect_last_page, fetch_forum_pages
-from preprocess import BeautifulSoup, extract_content, extract_date
+from preprocess import (
+    BeautifulSoup,
+    extract_canonical_url,
+    extract_content,
+    extract_date,
+    extract_post_url,
+)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "replace-with-a-secure-random-secret")
@@ -103,6 +109,7 @@ def embed_text(text: str) -> np.ndarray:
 def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
+
     if not force and os.path.exists(meta_path) and os.path.exists(hnsw_path):
         logger.info(f"[Preprocess] Index exists for {thread_dir}, skipping.")
         return
@@ -119,6 +126,9 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
         page = int(match.group(1))
         with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
             soup = BeautifulSoup(f, "html.parser")
+
+        base_thread_url = extract_canonical_url(soup)
+
         for el in soup.select("article.message"):
             content = extract_content(el).strip()
             if content:
@@ -127,9 +137,12 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                         "page": page,
                         "date": extract_date(el),
                         "content": clean_post_content(content),
-                        "url": None,
+                        "url": extract_post_url(el, soup.base_thread_url),
                     }
                 )
+            else:
+                logger.warning(f"Empty content on page {page}, skipping post.")
+
     logger.info(f"[Preprocess] Found {len(raw_posts)} posts to embed.")
 
     # 2) Load cache and prepare lists
@@ -170,9 +183,15 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     save_cache(cache)
     logger.info(f"[Preprocess] Cache saved ({len(cache)} embeddings).")
 
-    if not embeddings:
-        logger.warning("[Preprocess] No embeddings → abort.")
+    # Remove any zero‑length embeddings (and corresponding posts)
+    filtered = [(e, p) for e, p in zip(embeddings, posts) if e.ndim == 1 and e.size > 0]
+    if not filtered:
+        logger.warning("[Preprocess] No valid embeddings → abort.")
         return
+
+    logger.warning(f"Total embeddings: {len(embeddings)}, valid: {len(filtered)}")
+
+    embeddings, posts = zip(*filtered)
 
     # 5) Build HNSW index
     dim = embeddings[0].shape[0]
