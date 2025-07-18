@@ -273,7 +273,8 @@ def ask():
         context = "No relevant information found in the thread for this question."
     else:
         context = "\n\n---\n\n".join(
-            f"[Page {p['page']}] {p['date']}:\n{p['content']}" for p in relevant_posts
+            f"[Page {p['page']}] {p['date']} (Link: {p.get('url', 'N/A')}):\n{p['content']}"
+            for p in relevant_posts
         )
 
     logger.debug(f"Context being sent to LLM:\n{context}")
