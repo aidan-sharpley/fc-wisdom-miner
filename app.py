@@ -48,6 +48,11 @@ def extract_date(post_element) -> str:
     return "unknown-date"
 
 
+def extract_author(post_element) -> str:
+    """Extracts the author's username from the post element."""
+    return post_element.get("data-author", "unknown-author")
+
+
 def extract_content(post_element) -> str:
     # Pulls post content from XenForo bbWrapper.
     # Using a more specific selector to start, which is more robust.
@@ -60,16 +65,13 @@ def extract_content(post_element) -> str:
 
 def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
     """Build a full permalink from relative href or fallback to post ID."""
-    permalink_element = post_element.select_one(".message-attribution-main a")
+    permalink_element = post_element.select_one("ul.message-attribution-opposite a")
     if permalink_element and permalink_element.get("href"):
-        # The urljoin function correctly handles joining the base URL with a relative path
         return urljoin(canonical_base, permalink_element["href"])
 
-    # Fallback: construct from the 'data-content' attribute which is like 'post-12345'
+    # Fallback from data-content
     if post_element.get("data-content", "").startswith("post-"):
         post_id = post_element["data-content"].split("-")[1]
-        # Reconstruct a likely permalink structure.
-        # e.g., base: '.../threads/slug/' + 'post-123/' -> '.../threads/slug/post-123/'
         logger.debug(f"Using fallback URL construction for post ID {post_id}")
         return urljoin(canonical_base, f"post-{post_id}/")
 
@@ -82,11 +84,10 @@ def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
 def extract_canonical_url(soup: BeautifulSoup) -> str:
     """Grabs the base thread URL from the <link rel='canonical'> tag."""
     canonical_link = soup.select_one("head link[rel='canonical']")
-    return (
-        canonical_link["href"].rstrip("/") + "/"
-        if canonical_link
-        else "unknown-thread/"
-    )
+    if canonical_link and canonical_link.has_attr("href"):
+        # Remove page-specific part from the canonical URL
+        return re.sub(r"page-\d+/?$", "", canonical_link["href"]).rstrip("/") + "/"
+    return "unknown-thread/"
 
 
 def detect_last_page(base_url: str) -> int:
@@ -98,10 +99,8 @@ def detect_last_page(base_url: str) -> int:
     soup = BeautifulSoup(res.text, "html.parser")
     logger.info("Base page pulled successfully.")
 
-    last_page = 1  # Initialize with 1
+    last_page = 1
 
-    # First, try to find the 'max' attribute in the page jump input, if available.
-    # This is often the most direct way to get the true last page.
     page_jump_input = soup.select_one('.js-pageJumpPage[type="number"]')
     if page_jump_input and "max" in page_jump_input.attrs:
         try:
@@ -109,16 +108,13 @@ def detect_last_page(base_url: str) -> int:
             if max_page_from_input > last_page:
                 last_page = max_page_from_input
                 logger.info(f"Detected last page from page jump input: {last_page}")
-                return last_page  # If found, this is highly reliable, so return immediately.
+                return last_page
         except ValueError:
-            pass  # Ignore if max is not a valid number
+            pass
 
-    # Fallback: Iterate through all page number links and find the highest one.
-    # This handles cases where there's no explicit 'last' link or max attribute.
-    page_links = soup.select(".pageNav-page a")  # Select <a> tags within .pageNav-page
+    page_links = soup.select(".pageNav-page a")
     for link in page_links:
         try:
-            # Try to get number from href (e.g., page-227)
             href = link.get("href")
             if href:
                 match = re.search(r"page-(\d+)", href)
@@ -127,14 +123,13 @@ def detect_last_page(base_url: str) -> int:
                     if page_num_from_href > last_page:
                         last_page = page_num_from_href
 
-            # Also try to get number from text content (e.g., 227)
             link_text = link.text.strip()
             if link_text.isdigit():
                 page_num_from_text = int(link_text)
                 if page_num_from_text > last_page:
                     last_page = page_num_from_text
         except ValueError:
-            continue  # Ignore links that don't contain valid numbers
+            continue
 
     logger.info(f"Detected last page: {last_page}")
     return last_page
@@ -142,8 +137,10 @@ def detect_last_page(base_url: str) -> int:
 
 def fetch_forum_pages(base_url: str, start: int, end: int, save_dir: str) -> None:
     os.makedirs(save_dir, exist_ok=True)
+    base_url = re.sub(r"page-\d+/?$", "", base_url).rstrip("/")
+
     for i in range(start, end + 1):
-        page_url = base_url if i == 1 else f"{base_url}page-{i}"
+        page_url = f"{base_url}/page-{i}"
         output_path = os.path.join(save_dir, f"page{i}.html")
 
         if os.path.exists(output_path):
@@ -211,9 +208,6 @@ def save_cache(cache: Dict[str, np.ndarray]):
 
 
 def embed_text(text: str) -> np.ndarray:
-    """
-    Embed a single text using the GPU‑accelerated Ollama model.
-    """
     res = requests.post(
         OLLAMA_EMBED_API_URL,
         json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
@@ -225,21 +219,24 @@ def embed_text(text: str) -> np.ndarray:
 def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
+    posts_dir = os.path.join(thread_dir, "posts")
 
     if not force and os.path.exists(meta_path) and os.path.exists(hnsw_path):
         logger.info(f"[Preprocess] Index exists for {thread_dir}, skipping.")
         return
 
     logger.info(f"[Preprocess] Starting for thread at {thread_dir}")
+    if os.path.exists(posts_dir):
+        shutil.rmtree(posts_dir)
+    os.makedirs(posts_dir, exist_ok=True)
 
-    # 1) Collect raw posts
     raw_posts = []
-    for fn in sorted(os.listdir(thread_dir)):
-        match = re.search(r"page[-_]?(\d+)\.html", fn)
-        if not match:
-            logger.debug(f"[Preprocess] Skipping file {fn}")
+    for fn in sorted(
+        os.listdir(thread_dir), key=lambda x: int(re.search(r"(\d+)", x).group())
+    ):
+        if not fn.endswith(".html"):
             continue
-        page = int(match.group(1))
+        page = int(re.search(r"page(\d+)\.html", fn).group(1))
         with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
             soup = BeautifulSoup(f, "html.parser")
 
@@ -252,8 +249,8 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                     {
                         "page": page,
                         "date": extract_date(el),
+                        "author": extract_author(el),
                         "content": clean_post_content(content),
-                        # CORRECTED: Use the 'base_thread_url' variable, not 'soup.base_thread_url'
                         "url": extract_post_url(el, base_thread_url),
                     }
                 )
@@ -261,65 +258,68 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                 logger.warning(f"Empty content on page {page}, skipping post.")
 
     logger.info(f"[Preprocess] Found {len(raw_posts)} posts to embed.")
-
-    # 2) Load cache and prepare lists
     cache = load_cache()
 
     def post_hash(post):
         return hashlib.sha256(post["content"].encode("utf-8")).hexdigest()
 
-    embeddings, posts, to_embed = [], [], []
-    for post in raw_posts:
+    embeddings, to_embed, post_ids = [], [], []
+    for i, post in enumerate(raw_posts):
         h = post_hash(post)
+        with open(os.path.join(posts_dir, f"{i}.json"), "w") as f:
+            json.dump(post, f)
+
         if h in cache and not force:
-            logger.debug(f"Cache hit for post hash {h[:8]}...")
             embeddings.append(cache[h])
-            posts.append(post)
         else:
-            to_embed.append((h, post))
+            to_embed.append((h, post["content"]))
+            post_ids.append(i)
 
     logger.info(
-        f"[Preprocess] {len(posts)} posts loaded from cache; {len(to_embed)} new posts to embed."
+        f"[Preprocess] {len(embeddings)} posts loaded from cache; {len(to_embed)} new posts to embed."
     )
 
-    # 3) Parallel embed the uncached posts
     if to_embed:
+        embed_map = {}
         with ThreadPoolExecutor(max_workers=8) as exe:
             futures = {
-                exe.submit(embed_text, p["content"]): (h, p) for h, p in to_embed
+                exe.submit(embed_text, p_content): h for h, p_content in to_embed
             }
             for future in tqdm(
                 as_completed(futures), total=len(futures), desc="Embedding posts"
             ):
-                h, p = futures[future]
+                h = futures[future]
                 try:
                     emb = future.result()
                     cache[h] = emb
-                    embeddings.append(emb)
-                    posts.append(p)
+                    embed_map[h] = emb
                 except Exception as e:
-                    logger.error(f"[Preprocess] Embed error for page {p['page']}: {e}")
+                    logger.error(f"[Preprocess] Embed error: {e}")
 
-    # 4) Persist cache
+        temp_embeddings = [None] * len(raw_posts)
+        for i in range(len(raw_posts)):
+            if i in post_ids:
+                h = to_embed[post_ids.index(i)][0]
+                if h in embed_map:
+                    temp_embeddings[i] = embed_map[h]
+            else:
+                h = post_hash(raw_posts[i])
+                if h in cache:
+                    temp_embeddings[i] = cache[h]
+
+        embeddings = [e for e in temp_embeddings if e is not None]
+
     save_cache(cache)
     logger.info(f"[Preprocess] Cache saved ({len(cache)} total embeddings).")
 
-    # Remove any zero‑length embeddings (and corresponding posts)
-    filtered = [(e, p) for e, p in zip(embeddings, posts) if e.ndim == 1 and e.size > 0]
-    if not filtered:
+    if not embeddings or not all(
+        isinstance(e, np.ndarray) and e.ndim == 1 and e.size > 0 for e in embeddings
+    ):
         logger.warning(
             "[Preprocess] No valid embeddings found, aborting index creation."
         )
         return
 
-    if len(filtered) < len(embeddings):
-        logger.warning(
-            f"Filtered out {len(embeddings) - len(filtered)} posts with invalid embeddings."
-        )
-
-    embeddings, posts = zip(*filtered)
-
-    # 5) Build HNSW index
     dim = embeddings[0].shape[0]
     idx = hnswlib.Index(space="cosine", dim=dim)
     idx.init_index(max_elements=len(embeddings), ef_construction=200, M=32)
@@ -328,20 +328,22 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
 
     idx.save_index(hnsw_path)
     with open(meta_path, "wb") as f:
-        pickle.dump({"posts": posts, "dim": dim}, f)
+        pickle.dump({"dim": dim, "count": len(embeddings)}, f)
     logger.info(f"[Preprocess] HNSW index ({len(embeddings)} items, dim={dim}) saved.")
 
 
 def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dict]:
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
-    if not os.path.exists(meta_path) or not os.path.exists(hnsw_path):
+    posts_dir = os.path.join(thread_dir, "posts")
+
+    if not all(os.path.exists(p) for p in [meta_path, hnsw_path, posts_dir]):
         logger.warning(f"[Search] Missing index/meta for {thread_dir}, cannot search.")
         return []
 
     with open(meta_path, "rb") as f:
         meta = pickle.load(f)
-    posts, dim = meta["posts"], meta["dim"]
+    dim = meta["dim"]
 
     idx = hnswlib.Index(space="cosine", dim=dim)
     idx.load_index(hnsw_path)
@@ -354,7 +356,15 @@ def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dic
         return []
 
     labels, _ = idx.knn_query(q_emb, k=top_k)
-    results = [posts[i] for i in labels[0] if i < len(posts)]
+    results = []
+    for i in labels[0]:
+        post_path = os.path.join(posts_dir, f"{i}.json")
+        try:
+            with open(post_path, "r") as f:
+                results.append(json.load(f))
+        except FileNotFoundError:
+            logger.warning(f"Could not find post metadata file for index {i}")
+
     logger.info(f"[Search] Returning {len(results)} relevant posts for query.")
     return results
 
@@ -375,7 +385,7 @@ def ask():
     if not prompt or (not existing and not url):
         return "Prompt and thread key or URL required", 400
 
-    thread_key = existing or normalize_url(url).rstrip("/").split("/")[-1]
+    thread_key = existing or normalize_url(url).rstrip("/").split("/")[-1].split(".")[0]
     logger.info(f"Processing request for thread_key: '{thread_key}'")
     thread_dir = get_thread_dir(thread_key)
 
@@ -397,8 +407,8 @@ def ask():
             "No relevant information was found in the thread to answer the question."
         )
     else:
-        context = "\n\n---\n\n".join(
-            f"URL: {p['url']}\n[Page {p['page']}] {p['date']}:\n{p['content']}"
+        context = "\n\n".join(
+            f"--- Post by {p['author']} on {p['date']} (Page {p['page']}) ---\nURL: {p['url']}\n\n{p['content']}"
             for p in posts
         )
 
