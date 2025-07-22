@@ -204,6 +204,8 @@ def embed_text(text: str) -> np.ndarray:
     if h in cache:
         return cache[h]
     chunks = chunk_text(text)
+    if not chunks:
+        chunks = [text]
     vectors = []
     for chunk in chunks:
         r = http_post(
@@ -213,7 +215,7 @@ def embed_text(text: str) -> np.ndarray:
         )
         emb = np.array(r.json().get("embedding", []), dtype="float32")
         vectors.append(emb)
-    vec = np.mean(vectors, axis=0) if vectors else np.zeros_like(vectors[0])
+    vec = np.mean(vectors, axis=0)
     cache[h] = vec
     save_cache(cache)
     return vec
