@@ -41,6 +41,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def post_hash(post):
+    return hashlib.sha256(post["content"].encode("utf-8")).hexdigest()
+
+
 def extract_date(post_element) -> str:
     time_tag = post_element.find("time")
     if time_tag and time_tag.has_attr("datetime"):
@@ -55,7 +59,7 @@ def extract_author(post_element) -> str:
 def extract_content(post_element) -> str:
     for selector in [
         "div.message-userContent .bbWrapper",
-        "div.bbWrapper",  # broader fallback
+        "div.bbWrapper",
         ".message-content .bbWrapper",
         ".message-body .bbWrapper",
     ]:
@@ -264,9 +268,6 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     logger.info(f"[Preprocess] Found {len(raw_posts)} posts to embed.")
     cache = load_cache()
 
-    def post_hash(post):
-        return hashlib.sha256(post["content"].encode("utf-8")).hexdigest()
-
     embeddings, to_embed, post_ids = [], [], []
     for i, post in enumerate(raw_posts):
         h = post_hash(post)
@@ -306,10 +307,18 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                 h = to_embed[post_ids.index(i)][0]
                 if h in embed_map:
                     temp_embeddings[i] = embed_map[h]
+                else:
+                    logger.warning(
+                        f"[Preprocess] No embedding returned for post index {i}"
+                    )
             else:
                 h = post_hash(raw_posts[i])
                 if h in cache:
                     temp_embeddings[i] = cache[h]
+                else:
+                    logger.warning(
+                        f"[Preprocess] No cached embedding for post index {i}"
+                    )
 
         embeddings = [e for e in temp_embeddings if e is not None]
 
