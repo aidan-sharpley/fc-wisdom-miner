@@ -29,7 +29,6 @@ OLLAMA_EMBED_API_URL = os.environ.get(
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "deepseek-r1:1.5b")
 OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text:v1.5")
 
-
 BASE_TMP_DIR = os.environ.get("BASE_TMP_DIR", "tmp")
 INDEX_META_NAME = "index_meta.pkl"
 HNSW_INDEX_NAME = "index_hnsw.bin"
@@ -233,16 +232,13 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
         shutil.rmtree(posts_dir)
     os.makedirs(posts_dir, exist_ok=True)
 
-    # CORRECTED LOGIC: First, filter for HTML files, then sort them.
     all_files_in_dir = os.listdir(thread_dir)
     html_files = [f for f in all_files_in_dir if f.endswith(".html")]
-    # Use a more specific regex to safely extract the page number for sorting
     sorted_html_files = sorted(
         html_files, key=lambda x: int(re.search(r"page(\d+)\.html", x).group(1))
     )
 
     raw_posts = []
-    # Now, loop through the correctly sorted list of HTML files
     for fn in sorted_html_files:
         page = int(re.search(r"page(\d+)\.html", fn).group(1))
         with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
@@ -345,7 +341,57 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     logger.info(f"[Preprocess] HNSW index ({len(embeddings)} items, dim={dim}) saved.")
 
 
+def embed_text(text: str) -> np.ndarray:
+    """Embed text using OLLAMA embed API."""
+    res = requests.post(
+        OLLAMA_EMBED_API_URL,
+        json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
+    )
+    res.raise_for_status()
+    return np.array(res.json()["embedding"], dtype="float32")
+
+
+def llm_score_post_relevance(query: str, post_content: str) -> float:
+    """
+    Use the LLM to score relevance of a single post to the query.
+    Returns a float score (higher = more relevant).
+    """
+    prompt = (
+        f"On a scale from 0 to 10, how relevant is the following forum post to the question?\n\n"
+        f"Question: {query}\n\n"
+        f"Post:\n{post_content}\n\n"
+        f"Respond ONLY with a numeric score from 0 to 10."
+    )
+    try:
+        resp = requests.post(
+            OLLAMA_API_URL,
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        result_json = resp.json()
+        # The model's output may be in "response" or "text" field:
+        text = result_json.get("response") or result_json.get("text") or ""
+        # Extract numeric score using regex:
+        match = re.search(r"([0-9]+(\.[0-9]+)?)", text)
+        if match:
+            score = float(match.group(1))
+            score = max(0.0, min(score, 10.0))  # clamp to 0-10
+            return score
+        else:
+            logger.warning(f"LLM did not return a valid numeric score: '{text}'")
+            return 0.0
+    except Exception as e:
+        logger.error(f"Error scoring post relevance: {e}")
+        return 0.0
+
+
 def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dict]:
+    """
+    Two-stage retrieval:
+    1) Retrieve top 50 candidates by embedding similarity.
+    2) Rerank candidates by LLM scoring relevance.
+    """
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
     posts_dir = os.path.join(thread_dir, "posts")
@@ -368,18 +414,33 @@ def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dic
         logger.error(f"[Search] Query embed failed: {e}")
         return []
 
-    labels, _ = idx.knn_query(q_emb, k=top_k)
-    results = []
+    # Step 1: Retrieve top 50 candidates (increase number to get a bigger pool for rerank)
+    k_candidates = 50
+    labels, _ = idx.knn_query(q_emb, k=k_candidates)
+
+    candidates = []
     for i in labels[0]:
         post_path = os.path.join(posts_dir, f"{i}.json")
         try:
             with open(post_path, "r") as f:
-                results.append(json.load(f))
+                candidates.append(json.load(f))
         except FileNotFoundError:
             logger.warning(f"Could not find post metadata file for index {i}")
 
-    logger.info(f"[Search] Returning {len(results)} relevant posts for query.")
-    return results
+    logger.info(f"[Search] Retrieved {len(candidates)} candidates for reranking.")
+
+    # Step 2: Rerank candidates by LLM scoring relevance
+    scored_candidates = []
+    for post in candidates:
+        score = llm_score_post_relevance(query, post["content"])
+        scored_candidates.append((score, post))
+
+    scored_candidates.sort(key=lambda x: x[0], reverse=True)
+    top_results = [p for score, p in scored_candidates[:top_k]]
+
+    logger.info(f"[Search] Returning top {len(top_results)} reranked posts.")
+
+    return top_results
 
 
 @app.route("/")
@@ -425,48 +486,33 @@ def ask():
             for p in posts
         )
 
-    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context consists of several posts from a forum thread. If the answer cannot be found in the context, say 'I do not know.'
+    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context is from a forum thread. If no context is relevant, respond that you cannot answer.
 
----CONTEXT---
+Context:
 {context}
----END CONTEXT---
 
-Question: {prompt}
+Question:
+{prompt}
 """
-    payload = {"model": OLLAMA_MODEL, "prompt": system, "stream": True}
 
-    def stream_resp():
-        try:
-            with requests.post(OLLAMA_API_URL, json=payload, stream=True) as r:
-                r.raise_for_status()
-                for line in r.iter_lines(decode_unicode=True):
-                    if line:
-                        chunk = json.loads(line)
-                        if "response" in chunk:
-                            yield chunk["response"]
-        except Exception as e:
-            logger.error(f"Error streaming from OLLAMA: {e}")
-            yield f"[Error: Could not connect to the language model: {e}]"
-        yield "\n"
+    # Stream the LLM response
+    def generate():
+        payload = {
+            "model": OLLAMA_MODEL,
+            "prompt": system,
+            "stream": True,
+        }
+        with requests.post(
+            OLLAMA_API_URL, json=payload, stream=True, timeout=60
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if line:
+                    yield line.decode("utf-8") + "\n"
 
-    return Response(stream_resp(), content_type="text/plain")
-
-
-@app.route("/delete_thread", methods=["POST"])
-def delete_thread():
-    data = request.get_json(force=True)
-    key = data.get("thread_key", "").strip()
-    if not key or any(c in key for c in ("..", "/")):
-        return "Invalid thread key", 400
-    td = os.path.join(BASE_TMP_DIR, key)
-    if os.path.exists(td):
-        logger.info(f"Deleting thread directory: {td}")
-        shutil.rmtree(td)
-        return f"Deleted {key}", 200
-    logger.warning(f"Attempted to delete non-existent thread: {key}")
-    return "Not found", 404
+    return Response(generate(), mimetype="text/event-stream")
 
 
 if __name__ == "__main__":
-    logger.info("Starting Forum Wisdom Miner…")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=True)
+    os.makedirs(BASE_TMP_DIR, exist_ok=True)
+    app.run(host="0.0.0.0", port=8080, debug=True)
