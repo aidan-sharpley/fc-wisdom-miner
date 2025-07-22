@@ -175,7 +175,7 @@ def embed_text(text: str) -> np.ndarray:
         timeout=API_TIMEOUT,
     )
     r.raise_for_status()
-    return np.array(r.json()["embedding"], dtype="float32")
+    return np.array(r.json().get("embedding", []), dtype="float32")
 
 
 # -------------------- Preprocessing --------------------
@@ -270,7 +270,11 @@ def generate_hyde(query: str) -> str:
             timeout=API_TIMEOUT,
         )
         r.raise_for_status()
-        return r.json().get("response", query)
+        # Attempt JSON parse, fallback to raw text
+        try:
+            return r.json().get("response", query)
+        except ValueError:
+            return r.text.strip() or query
     except Exception as e:
         logger.warning(f"HyDE generation failed: {e}")
         return query
@@ -292,7 +296,12 @@ def batch_rerank(query: str, posts: List[Dict]) -> List[Tuple[int, Dict]]:
             timeout=BATCH_RERANK_TIMEOUT,
         )
         r.raise_for_status()
-        text = r.json().get("response", "")
+        # Fallback JSON/text handling
+        text = ""
+        try:
+            text = r.json().get("response", "")
+        except ValueError:
+            text = r.text
         scores = [int(m.group(1)) for m in re.finditer(r"\d+\.\s*(\d+)", text)]
         if len(scores) != len(posts):
             raise ValueError("Mismatch between scores and posts count")
@@ -395,7 +404,7 @@ def ask():
 
     # Metadata-first shortcuts
     lower = prompt.lower()
-    posts = []
+    posts: List[Dict] = []
     if "first post" in lower:
         try:
             posts = [json.load(open(os.path.join(thread_dir, "posts", "0.json")))]
