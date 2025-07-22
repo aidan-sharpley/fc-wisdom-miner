@@ -209,15 +209,6 @@ def save_cache(cache: Dict[str, np.ndarray]):
         pickle.dump(cache, f)
 
 
-def embed_text(text: str) -> np.ndarray:
-    res = requests.post(
-        OLLAMA_EMBED_API_URL,
-        json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
-    )
-    res.raise_for_status()
-    return np.array(res.json()["embedding"], dtype="float32")
-
-
 def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
@@ -341,6 +332,59 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     logger.info(f"[Preprocess] HNSW index ({len(embeddings)} items, dim={dim}) saved.")
 
 
+def batch_llm_score_posts(query, posts):
+    """
+    Ask the LLM to rate each post’s relevance to the query in a single call.
+    Returns a list of (score, post) tuples.
+    """
+    prompt_lines = [
+        f"Question: {query}",
+        "",
+        "Rate the relevance of each post from 0 (not relevant) to 10 (very relevant).",
+        "Respond with only a numbered list of scores, like: 1. 7, 2. 4, ...",
+        "",
+        "Posts:",
+    ]
+
+    for idx, post in enumerate(posts, 1):
+        prompt_lines.append(f"{idx}. {post['content'].strip().replace('\n', ' ')}")
+
+    full_prompt = "\n".join(prompt_lines)
+
+    try:
+        resp = requests.post(
+            OLLAMA_API_URL,
+            json={"model": OLLAMA_MODEL, "prompt": full_prompt},
+            timeout=60,  # increased timeout
+        )
+        resp.raise_for_status()
+        text = resp.json().get("response", "")
+        scores = extract_scores_from_text(text, len(posts))
+
+        return [(score, post) for score, post in zip(scores, posts)]
+    except Exception as e:
+        logger.error(f"[Rerank] Error in batch LLM scoring: {e}")
+        return [(0, post) for post in posts]  # fallback: score 0
+
+
+def extract_scores_from_text(text, count):
+    """
+    Parses the numbered list of scores from LLM output.
+    Example expected: '1. 7\n2. 5\n...'
+    """
+    scores = []
+    for line in text.strip().splitlines():
+        match = re.match(r"\s*\d+\.\s*(\d+)", line)
+        if match:
+            scores.append(int(match.group(1)))
+    if len(scores) != count:
+        logger.warning(
+            f"[Rerank] Expected {count} scores, got {len(scores)}. Using defaults."
+        )
+        scores += [0] * (count - len(scores))
+    return scores
+
+
 def embed_text(text: str) -> np.ndarray:
     """Embed text using OLLAMA embed API."""
     res = requests.post(
@@ -386,61 +430,32 @@ def llm_score_post_relevance(query: str, post_content: str) -> float:
         return 0.0
 
 
-def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dict]:
-    """
-    Two-stage retrieval:
-    1) Retrieve top 50 candidates by embedding similarity.
-    2) Rerank candidates by LLM scoring relevance.
-    """
-    meta_path = os.path.join(thread_dir, INDEX_META_NAME)
-    hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
+def find_relevant_posts(query, thread_dir, top_k=5):
     posts_dir = os.path.join(thread_dir, "posts")
+    with open(os.path.join(thread_dir, "embeddings.json"), "r") as f:
+        embeddings = json.load(f)
 
-    if not all(os.path.exists(p) for p in [meta_path, hnsw_path, posts_dir]):
-        logger.warning(f"[Search] Missing index/meta for {thread_dir}, cannot search.")
-        return []
+    # Load index
+    idx = hnswlib.Index(space="cosine", dim=len(embeddings[0]["embedding"]))
+    idx.load_index(os.path.join(thread_dir, "index.bin"))
 
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-    dim = meta["dim"]
-
-    idx = hnswlib.Index(space="cosine", dim=dim)
-    idx.load_index(hnsw_path)
-    idx.set_ef(50)
-
-    try:
-        q_emb = embed_text(query)
-    except Exception as e:
-        logger.error(f"[Search] Query embed failed: {e}")
-        return []
-
-    # Step 1: Retrieve top 50 candidates (increase number to get a bigger pool for rerank)
-    k_candidates = 50
-    labels, _ = idx.knn_query(q_emb, k=k_candidates)
+    query_emb = embed_text(query)["embedding"]
+    labels, _ = idx.knn_query(query_emb, k=50)
 
     candidates = []
     for i in labels[0]:
         post_path = os.path.join(posts_dir, f"{i}.json")
-        try:
-            with open(post_path, "r") as f:
-                candidates.append(json.load(f))
-        except FileNotFoundError:
-            logger.warning(f"Could not find post metadata file for index {i}")
+        with open(post_path) as f:
+            post = json.load(f)
+        candidates.append(post)
 
     logger.info(f"[Search] Retrieved {len(candidates)} candidates for reranking.")
 
-    # Step 2: Rerank candidates by LLM scoring relevance
-    scored_candidates = []
-    for post in candidates:
-        score = llm_score_post_relevance(query, post["content"])
-        scored_candidates.append((score, post))
+    # Batch rerank
+    scored = batch_llm_score_posts(query, candidates)
+    scored.sort(key=lambda x: x[0], reverse=True)
 
-    scored_candidates.sort(key=lambda x: x[0], reverse=True)
-    top_results = [p for score, p in scored_candidates[:top_k]]
-
-    logger.info(f"[Search] Returning top {len(top_results)} reranked posts.")
-
-    return top_results
+    return [p for s, p in scored[:top_k]]
 
 
 @app.route("/")
