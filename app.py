@@ -53,31 +53,33 @@ def extract_author(post_element) -> str:
 
 
 def extract_content(post_element) -> str:
-    # XenForo posts always use .bbWrapper for body
-    content_div = post_element.select_one(".bbWrapper")
-    return content_div.get_text(separator="\n").strip() if content_div else ""
+    # Most accurate path to full content for XenForo forums
+    wrapper = post_element.select_one("div.bbWrapper")
+    return wrapper.get_text(separator="\n").strip() if wrapper else ""
 
 
 def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
-    # Tries main attribution header first
-    permalink = post_element.select_one("header.message-attribution a[href*='post-']")
-    if permalink and permalink.has_attr("href"):
-        return urljoin(canonical_base, permalink["href"])
+    """Returns the full permalink to the post."""
+    # Try permalink link
+    link = post_element.select_one("ul.message-attribution-opposite a[href]")
+    if link:
+        return urljoin(canonical_base, link["href"])
 
-    # Fallback from data-content
-    if post_element.get("data-content", "").startswith("post-"):
-        post_id = post_element["data-content"].split("-")[1]
+    # Fallback: use data-content="post-XXXXX"
+    data_content = post_element.get("data-content", "")
+    if data_content.startswith("post-"):
+        post_id = data_content.split("-")[1]
         return urljoin(canonical_base, f"post-{post_id}/")
 
-    return urljoin(canonical_base, "unknown-post")
+    return canonical_base + "#unknown"
 
 
 def extract_canonical_url(soup: BeautifulSoup) -> str:
-    """Grabs the base thread URL from the <link rel='canonical'> tag."""
-    canonical_link = soup.select_one("head link[rel='canonical']")
-    if canonical_link and canonical_link.has_attr("href"):
-        # Remove page-specific part from the canonical URL
-        return re.sub(r"page-\d+/?$", "", canonical_link["href"]).rstrip("/") + "/"
+    """Extracts the canonical base thread URL."""
+    link = soup.find("link", rel="canonical")
+    if link and link.has_attr("href"):
+        url = link["href"]
+        return re.sub(r"page-\d+/?$", "", url).rstrip("/") + "/"
     return "unknown-thread/"
 
 
