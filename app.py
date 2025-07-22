@@ -49,36 +49,27 @@ def extract_date(post_element) -> str:
 
 
 def extract_author(post_element) -> str:
-    """Extracts the author's username from the post element."""
     return post_element.get("data-author", "unknown-author")
 
 
 def extract_content(post_element) -> str:
-    # Pulls post content from XenForo bbWrapper.
-    # Using a more specific selector to start, which is more robust.
-    content_div = post_element.select_one("div.message-userContent .bbWrapper")
-    if not content_div:
-        # Fallback to the original, broader selector if the specific one fails
-        content_div = post_element.select_one(".message-main .bbWrapper")
+    # XenForo posts always use .bbWrapper for body
+    content_div = post_element.select_one(".bbWrapper")
     return content_div.get_text(separator="\n").strip() if content_div else ""
 
 
 def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
-    """Build a full permalink from relative href or fallback to post ID."""
-    permalink_element = post_element.select_one("ul.message-attribution-opposite a")
-    if permalink_element and permalink_element.get("href"):
-        return urljoin(canonical_base, permalink_element["href"])
+    # Tries main attribution header first
+    permalink = post_element.select_one("header.message-attribution a[href*='post-']")
+    if permalink and permalink.has_attr("href"):
+        return urljoin(canonical_base, permalink["href"])
 
     # Fallback from data-content
     if post_element.get("data-content", "").startswith("post-"):
         post_id = post_element["data-content"].split("-")[1]
-        logger.debug(f"Using fallback URL construction for post ID {post_id}")
         return urljoin(canonical_base, f"post-{post_id}/")
 
-    logger.warning(
-        f"Could not determine a permalink for post by user {post_element.get('data-author')}. Using a non-specific URL."
-    )
-    return f"{canonical_base}unknown-post"
+    return urljoin(canonical_base, "unknown-post")
 
 
 def extract_canonical_url(soup: BeautifulSoup) -> str:
