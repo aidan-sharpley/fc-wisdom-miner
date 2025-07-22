@@ -75,8 +75,8 @@ def list_threads() -> List[str]:
 
 def clean_post_content(raw: str) -> str:
     text = BeautifulSoup(raw, "html.parser").get_text()
-    text = re.sub(r"(?:^|\n)\s*\w+ said:\s*(Click to expand\.\.\.)?", "", text)
-    text = re.sub(r"Click to expand\.\.\.", "", text)
+    text = re.sub(r"(?:^|\n)\s*\w+ said:\s*(Click to expand\.{3})?", "", text)
+    text = re.sub(r"Click to expand\.{3}", "", text)
     text = re.sub(r"[\t ]+", " ", text)
     text = re.sub(r"\n{2,}", "\n", text).strip()
     return text
@@ -221,8 +221,7 @@ def preprocess_thread(thread_dir: str, force: bool = False):
                 {"page": page, "date": post["date"], "author": post["author"]}
             )
 
-    with open(meta_index, "w") as f:
-        json.dump(metadata, f, indent=2)
+    json.dump(metadata, open(meta_index, "w"), indent=2)
 
     cache = load_cache()
     to_embed = [p for p in raw_posts if force or post_hash(p["content"]) not in cache]
@@ -246,16 +245,14 @@ def preprocess_thread(thread_dir: str, force: bool = False):
     for idx, post in enumerate(raw_posts):
         h = post_hash(post["content"])
         vectors.append(cache[h])
-        with open(os.path.join(posts_dir, f"{idx}.json"), "w") as f:
-            json.dump(post, f)
+        open(os.path.join(posts_dir, f"{idx}.json"), "w").write(json.dumps(post))
 
     dim = vectors[0].shape[0]
     index = hnswlib.Index(space="cosine", dim=dim)
     index.init_index(max_elements=len(vectors), ef_construction=200, M=32)
     index.add_items(np.vstack(vectors))
     index.save_index(index_path)
-    with open(meta_path, "wb") as f:
-        pickle.dump({"dim": dim, "count": len(vectors)}, f)
+    pickle.dump({"dim": dim, "count": len(vectors)}, open(meta_path, "wb"))
     logger.info(f"Built HNSW index with {len(vectors)} items.")
 
 
@@ -281,7 +278,7 @@ def generate_hyde(query: str) -> str:
 def batch_rerank(query: str, posts: List[Dict]) -> List[Tuple[int, Dict]]:
     lines = [
         f"Question: {query}",
-        "Rate relevance of each post from 0-10; respond ONLY with numbered list:",
+        "Rate relevance of each post from 0-10, respond ONLY with numbered list:",
     ]
     for i, p in enumerate(posts, 1):
         snippet = p["content"][:300].replace("\n", " ")
@@ -300,7 +297,7 @@ def batch_rerank(query: str, posts: List[Dict]) -> List[Tuple[int, Dict]]:
             text = r.text
         scores = [int(m.group(1)) for m in re.finditer(r"\d+\.\s*(\d+)", text)]
         if len(scores) != len(posts):
-            raise ValueError("Mismatch between scores and posts count")
+            raise ValueError("Mismatch scores/posts")
         return list(zip(scores, posts))
     except Exception as e:
         logger.warning(f"Rerank batch failed: {e}")
