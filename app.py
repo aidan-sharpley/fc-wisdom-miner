@@ -29,10 +29,14 @@ HNSW_INDEX_NAME = "index_hnsw.bin"
 METADATA_INDEX_NAME = "metadata_index.json"
 CACHE_PATH = os.path.join(BASE_TMP_DIR, "embeddings_cache.pkl")
 
-# Timeouts and sizes
+# Timeouts, retry, and sizes
 API_TIMEOUT = 10  # seconds for HTTP calls
-BATCH_RERANK_TIMEOUT = 30
+MAX_RETRIES = 3
+RETRY_BACKOFF = 2  # seconds, exponential
+CHUNK_SIZE = 1000  # characters per embed chunk
+CHUNK_OVERLAP = 200  # overlap between chunks
 QUERY_RERANK_SIZE = 25
+BATCH_RERANK_TIMEOUT = 30
 FINAL_TOP_K = 7
 
 # -------------------- Logging Setup --------------------
@@ -153,6 +157,21 @@ def fetch_forum_pages(base_url: str, last_page: int, save_dir: str):
             break
 
 
+# -------------------- HTTP with Retries --------------------
+def http_post(url: str, json_data: dict, timeout: int):
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            r = requests.post(url, json=json_data, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            logger.warning(f"Request to {url} failed (attempt {attempt}): {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_BACKOFF ** (attempt - 1))
+            else:
+                raise
+
+
 # -------------------- Embeddings & Cache --------------------
 def load_cache() -> Dict[str, np.ndarray]:
     if os.path.exists(CACHE_PATH):
@@ -168,14 +187,36 @@ def save_cache(cache: Dict[str, np.ndarray]):
     pickle.dump(cache, open(CACHE_PATH, "wb"))
 
 
+def chunk_text(text: str) -> List[str]:
+    chunks = []
+    start = 0
+    length = len(text)
+    while start < length:
+        end = min(start + CHUNK_SIZE, length)
+        chunks.append(text[start:end])
+        start += CHUNK_SIZE - CHUNK_OVERLAP
+    return chunks
+
+
 def embed_text(text: str) -> np.ndarray:
-    r = requests.post(
-        OLLAMA_EMBED_API_URL,
-        json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
-        timeout=API_TIMEOUT,
-    )
-    r.raise_for_status()
-    return np.array(r.json().get("embedding", []), dtype="float32")
+    cache = load_cache()
+    h = post_hash(text)
+    if h in cache:
+        return cache[h]
+    chunks = chunk_text(text)
+    vectors = []
+    for chunk in chunks:
+        r = http_post(
+            OLLAMA_EMBED_API_URL,
+            {"model": OLLAMA_EMBED_MODEL, "prompt": chunk},
+            timeout=API_TIMEOUT,
+        )
+        emb = np.array(r.json().get("embedding", []), dtype="float32")
+        vectors.append(emb)
+    vec = np.mean(vectors, axis=0) if vectors else np.zeros_like(vectors[0])
+    cache[h] = vec
+    save_cache(cache)
+    return vec
 
 
 # -------------------- Preprocessing --------------------
@@ -221,7 +262,8 @@ def preprocess_thread(thread_dir: str, force: bool = False):
                 {"page": page, "date": post["date"], "author": post["author"]}
             )
 
-    json.dump(metadata, open(meta_index, "w"), indent=2)
+    with open(meta_index, "w") as f:
+        json.dump(metadata, f, indent=2)
 
     cache = load_cache()
     to_embed = [p for p in raw_posts if force or post_hash(p["content"]) not in cache]
@@ -245,14 +287,16 @@ def preprocess_thread(thread_dir: str, force: bool = False):
     for idx, post in enumerate(raw_posts):
         h = post_hash(post["content"])
         vectors.append(cache[h])
-        open(os.path.join(posts_dir, f"{idx}.json"), "w").write(json.dumps(post))
+        with open(os.path.join(posts_dir, f"{idx}.json"), "w") as f:
+            json.dump(post, f)
 
     dim = vectors[0].shape[0]
-    index = hnswlib.Index(space="cosine", dim=dim)
-    index.init_index(max_elements=len(vectors), ef_construction=200, M=32)
-    index.add_items(np.vstack(vectors))
-    index.save_index(index_path)
-    pickle.dump({"dim": dim, "count": len(vectors)}, open(meta_path, "wb"))
+    idx = hnswlib.Index(space="cosine", dim=dim)
+    idx.init_index(max_elements=len(vectors), ef_construction=200, M=32)
+    idx.add_items(np.vstack(vectors))
+    idx.save_index(index_path)
+    with open(meta_path, "wb") as f:
+        pickle.dump({"dim": dim, "count": len(vectors)}, f)
     logger.info(f"Built HNSW index with {len(vectors)} items.")
 
 
@@ -260,16 +304,13 @@ def preprocess_thread(thread_dir: str, force: bool = False):
 def generate_hyde(query: str) -> str:
     prompt = f"Write a concise answer to help retrieve relevant forum posts.\n\nQuestion: {query}"
     try:
-        r = requests.post(
+        r = http_post(
             OLLAMA_API_URL,
-            json={"model": OLLAMA_MODEL, "prompt": prompt},
+            {"model": OLLAMA_MODEL, "prompt": prompt},
             timeout=API_TIMEOUT,
         )
-        r.raise_for_status()
-        try:
-            return r.json().get("response", query)
-        except ValueError:
-            return r.text.strip() or query
+        data = r.json()
+        return data.get("response", query)
     except Exception as e:
         logger.warning(f"HyDE generation failed: {e}")
         return query
@@ -285,16 +326,13 @@ def batch_rerank(query: str, posts: List[Dict]) -> List[Tuple[int, Dict]]:
         lines.append(f"{i}. {snippet}...")
     prompt = "\n".join(lines)
     try:
-        r = requests.post(
+        r = http_post(
             OLLAMA_API_URL,
-            json={"model": OLLAMA_MODEL, "prompt": prompt},
+            {"model": OLLAMA_MODEL, "prompt": prompt},
             timeout=BATCH_RERANK_TIMEOUT,
         )
-        r.raise_for_status()
-        try:
-            text = r.json().get("response", "")
-        except ValueError:
-            text = r.text
+        data = r.json()
+        text = data.get("response", "")
         scores = [int(m.group(1)) for m in re.finditer(r"\d+\.\s*(\d+)", text)]
         if len(scores) != len(posts):
             raise ValueError("Mismatch scores/posts")
@@ -430,7 +468,7 @@ def ask():
     else:
         author_m = re.search(r"posts by\s+([\w-]+)", lower)
         page_m = re.search(r"on page\s+(\d+)", lower)
-        date_m = re.search(r"from\s+([A-Za-z]+ \d{1,2},? \d{4})", lower)
+        date_m = re.search(r"from\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", lower)
         if author_m:
             posts = find_posts_by_metadata(thread_dir, author=author_m.group(1))
         elif page_m:
