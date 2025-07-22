@@ -58,13 +58,20 @@ def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
     """Build a full permalink from relative href or fallback to post ID."""
     permalink_element = post_element.select_one(".message-attribution-main a")
     if permalink_element and permalink_element.get("href"):
+        # The urljoin function correctly handles joining the base URL with a relative path
         return urljoin(canonical_base, permalink_element["href"])
 
-    # Fallback: construct from post ID
-    if post_element.has_attr("id") and post_element["id"].startswith("post-"):
-        post_id = post_element["id"].split("-")[1]
-        return f"{canonical_base}post-{post_id}/"
+    # Fallback: construct from the 'data-content' attribute which is like 'post-12345'
+    if post_element.get("data-content", "").startswith("post-"):
+        post_id = post_element["data-content"].split("-")[1]
+        # Reconstruct a likely permalink structure.
+        # e.g., base: '.../threads/slug/' + 'post-123/' -> '.../threads/slug/post-123/'
+        logger.debug(f"Using fallback URL construction for post ID {post_id}")
+        return urljoin(canonical_base, f"post-{post_id}/")
 
+    logger.warning(
+        f"Could not determine a permalink for post by user {post_element.get('data-author')}. Using a non-specific URL."
+    )
     return f"{canonical_base}unknown-post"
 
 
@@ -210,7 +217,7 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
 
     if not force and os.path.exists(meta_path) and os.path.exists(hnsw_path):
-        logger.info(f"[Preprocess] Index exists for {thread_dir}, skipping.")
+        logger.info(f"[Preprocess] Index already exists for {thread_dir}, skipping.")
         return
 
     logger.info(f"[Preprocess] Starting for thread at {thread_dir}")
@@ -236,7 +243,7 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                         "page": page,
                         "date": extract_date(el),
                         "content": clean_post_content(content),
-                        "url": extract_post_url(el, soup.base_thread_url),
+                        "url": extract_post_url(el, base_thread_url),
                     }
                 )
             else:
@@ -254,41 +261,50 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     for post in raw_posts:
         h = post_hash(post)
         if h in cache and not force:
+            logger.debug(f"Cache hit for post hash {h[:8]}...")
             embeddings.append(cache[h])
             posts.append(post)
         else:
             to_embed.append((h, post))
 
     logger.info(
-        f"[Preprocess] {len(posts)} loaded from cache; {len(to_embed)} to embed."
+        f"[Preprocess] {len(posts)} posts loaded from cache; {len(to_embed)} new posts to embed."
     )
 
     # 3) Parallel embed the uncached posts
-    with ThreadPoolExecutor(max_workers=8) as exe:
-        futures = {exe.submit(embed_text, p["content"]): (h, p) for h, p in to_embed}
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Embedding posts"
-        ):
-            h, p = futures[future]
-            try:
-                emb = future.result()
-                cache[h] = emb
-                embeddings.append(emb)
-                posts.append(p)
-            except Exception as e:
-                logger.error(f"[Preprocess] Embed error for page {p['page']}: {e}")
+    if to_embed:
+        with ThreadPoolExecutor(max_workers=8) as exe:
+            futures = {
+                exe.submit(embed_text, p["content"]): (h, p) for h, p in to_embed
+            }
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Embedding posts"
+            ):
+                h, p = futures[future]
+                try:
+                    emb = future.result()
+                    cache[h] = emb
+                    embeddings.append(emb)
+                    posts.append(p)
+                except Exception as e:
+                    logger.error(f"[Preprocess] Embed error for page {p['page']}: {e}")
 
     # 4) Persist cache
     save_cache(cache)
-    logger.info(f"[Preprocess] Cache saved ({len(cache)} embeddings).")
+    logger.info(f"[Preprocess] Cache saved ({len(cache)} total embeddings).")
 
     # Remove any zero‑length embeddings (and corresponding posts)
     filtered = [(e, p) for e, p in zip(embeddings, posts) if e.ndim == 1 and e.size > 0]
     if not filtered:
-        logger.warning("[Preprocess] No valid embeddings → abort.")
+        logger.warning(
+            "[Preprocess] No valid embeddings found, aborting index creation."
+        )
         return
 
-    logger.warning(f"Total embeddings: {len(embeddings)}, valid: {len(filtered)}")
+    if len(filtered) < len(embeddings):
+        logger.warning(
+            f"Filtered out {len(embeddings) - len(filtered)} posts with invalid embeddings."
+        )
 
     embeddings, posts = zip(*filtered)
 
@@ -309,7 +325,7 @@ def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dic
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
     if not os.path.exists(meta_path) or not os.path.exists(hnsw_path):
-        logger.warning(f"[Search] Missing index/meta for {thread_dir}")
+        logger.warning(f"[Search] Missing index/meta for {thread_dir}, cannot search.")
         return []
 
     with open(meta_path, "rb") as f:
@@ -328,7 +344,7 @@ def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dic
 
     labels, _ = idx.knn_query(q_emb, k=top_k)
     results = [posts[i] for i in labels[0] if i < len(posts)]
-    logger.info(f"[Search] Returning {len(results)} posts for query.")
+    logger.info(f"[Search] Returning {len(results)} relevant posts for query.")
     return results
 
 
@@ -349,24 +365,33 @@ def ask():
         return "Prompt and thread key or URL required", 400
 
     thread_key = existing or normalize_url(url).rstrip("/").split("/")[-1]
+    logger.info(f"Processing request for thread_key: '{thread_key}'")
     thread_dir = get_thread_dir(thread_key)
 
     htmls = [f for f in os.listdir(thread_dir) if f.endswith(".html")]
     if url and (not htmls or refresh):
+        logger.info(
+            f"Fetching new HTML pages for '{thread_key}'. Refresh flag: {refresh}"
+        )
         last = detect_last_page(url)
         fetch_forum_pages(url, 1, last, save_dir=thread_dir)
+    else:
+        logger.info(f"Using existing HTML pages for '{thread_key}'.")
 
     preprocess_thread(thread_dir, force=refresh)
 
     posts = find_relevant_posts(prompt, thread_dir)
     if not posts:
-        context = "No relevant information found."
+        context = (
+            "No relevant information was found in the thread to answer the question."
+        )
     else:
         context = "\n\n---\n\n".join(
-            f"[Page {p['page']}] {p['date']}:\n{p['content']}" for p in posts
+            f"URL: {p['url']}\n[Page {p['page']}] {p['date']}:\n{p['content']}"
+            for p in posts
         )
 
-    system = f"""You are an expert forum analyst. Use *only* the context. If no answer, say 'I do not know.'
+    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context consists of several posts from a forum thread. If the answer cannot be found in the context, say 'I do not know.'
 
 ---CONTEXT---
 {context}
@@ -386,7 +411,8 @@ Question: {prompt}
                         if "response" in chunk:
                             yield chunk["response"]
         except Exception as e:
-            yield f"[Error: {e}]"
+            logger.error(f"Error streaming from OLLAMA: {e}")
+            yield f"[Error: Could not connect to the language model: {e}]"
         yield "\n"
 
     return Response(stream_resp(), content_type="text/plain")
@@ -400,8 +426,10 @@ def delete_thread():
         return "Invalid thread key", 400
     td = os.path.join(BASE_TMP_DIR, key)
     if os.path.exists(td):
+        logger.info(f"Deleting thread directory: {td}")
         shutil.rmtree(td)
         return f"Deleted {key}", 200
+    logger.warning(f"Attempted to delete non-existent thread: {key}")
     return "Not found", 404
 
 
