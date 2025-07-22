@@ -7,7 +7,7 @@ import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import hnswlib
 import numpy as np
@@ -29,17 +29,16 @@ HNSW_INDEX_NAME = "index_hnsw.bin"
 METADATA_INDEX_NAME = "metadata_index.json"
 CACHE_PATH = os.path.join(BASE_TMP_DIR, "embeddings_cache.pkl")
 
-# Timeouts, retry, and sizes
-API_TIMEOUT = 10  # seconds for HTTP calls
-MAX_RETRIES = 3
-RETRY_BACKOFF = 2  # seconds, exponential
-CHUNK_SIZE = 1000  # characters per embed chunk
-CHUNK_OVERLAP = 200  # overlap between chunks
+API_TIMEOUT = 10  # HTTP timeout
+MAX_RETRIES = 3  # HTTP retries
+RETRY_BACKOFF = 2  # Exponential backoff
+CHUNK_SIZE = 1000  # chars per embed chunk
+CHUNK_OVERLAP = 200  # chunk overlap
 QUERY_RERANK_SIZE = 25
 BATCH_RERANK_TIMEOUT = 30
 FINAL_TOP_K = 7
 
-# -------------------- Logging Setup --------------------
+# -------------------- Logging --------------------
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s - %(message)s"
 )
@@ -50,7 +49,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "replace-with-secure-secret")
 
 
-# -------------------- Utility Functions --------------------
+# -------------------- Utilities --------------------
 def post_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -69,11 +68,9 @@ def list_threads() -> List[str]:
     if not os.path.isdir(BASE_TMP_DIR):
         return []
     return sorted(
-        [
-            d
-            for d in os.listdir(BASE_TMP_DIR)
-            if os.path.isdir(os.path.join(BASE_TMP_DIR, d))
-        ]
+        d
+        for d in os.listdir(BASE_TMP_DIR)
+        if os.path.isdir(os.path.join(BASE_TMP_DIR, d))
     )
 
 
@@ -97,22 +94,22 @@ def extract_author(el) -> str:
 
 
 def extract_content(el) -> str:
-    for selector in ["div.message-userContent .bbWrapper", ".message-body .bbWrapper"]:
-        node = el.select_one(selector)
+    for sel in ["div.message-userContent .bbWrapper", ".message-body .bbWrapper"]:
+        node = el.select_one(sel)
         if node:
             return node.get_text(separator="\n").strip()
     return ""
 
 
-def extract_post_url(el, base_url: str) -> str:
+def extract_post_url(el, base: str) -> str:
     link = el.select_one("ul.message-attribution-opposite a[href]")
     if link and link.has_attr("href"):
-        return requests.compat.urljoin(base_url, link["href"])
+        return requests.compat.urljoin(base, link["href"])
     data = el.get("data-content", "")
     if data.startswith("post-"):
         pid = data.split("-")[1]
-        return f"{base_url}posts/{pid}/"
-    return f"{base_url}#unknown-post"
+        return f"{base}posts/{pid}/"
+    return f"{base}#unknown-post"
 
 
 def extract_canonical_url(soup: BeautifulSoup) -> str:
@@ -142,13 +139,13 @@ def detect_last_page(url: str) -> int:
 def fetch_forum_pages(base_url: str, last_page: int, save_dir: str):
     base = re.sub(r"page-\d+/?$", "", base_url).rstrip("/")
     for i in range(1, last_page + 1):
-        out = os.path.join(save_dir, f"page{i}.html")
-        if os.path.exists(out):
+        fn = os.path.join(save_dir, f"page{i}.html")
+        if os.path.exists(fn):
             continue
         try:
             r = requests.get(f"{base}/page-{i}", timeout=API_TIMEOUT)
             r.raise_for_status()
-            with open(out, "w", encoding="utf-8") as f:
+            with open(fn, "w", encoding="utf-8") as f:
                 f.write(r.text)
             time.sleep(0.5)
             logger.info(f"Saved page {i}/{last_page}")
@@ -172,7 +169,7 @@ def http_post(url: str, json_data: dict, timeout: int):
                 raise
 
 
-# -------------------- Embeddings & Cache --------------------
+# -------------------- Embedding --------------------
 def load_cache() -> Dict[str, np.ndarray]:
     if os.path.exists(CACHE_PATH):
         try:
@@ -188,9 +185,7 @@ def save_cache(cache: Dict[str, np.ndarray]):
 
 
 def chunk_text(text: str) -> List[str]:
-    chunks = []
-    start = 0
-    length = len(text)
+    chunks, start, length = [], 0, len(text)
     while start < length:
         end = min(start + CHUNK_SIZE, length)
         chunks.append(text[start:end])
@@ -203,23 +198,16 @@ def embed_text(text: str) -> np.ndarray:
     h = post_hash(text)
     if h in cache:
         return cache[h]
-
-    # Break into chunks, but ensure at least one chunk exists
-    chunks = chunk_text(text)
-    if not chunks:
-        chunks = [text]
-
+    chunks = chunk_text(text) or [text]
     vectors = []
-    for chunk in chunks:
+    for c in chunks:
         r = http_post(
             OLLAMA_EMBED_API_URL,
-            {"model": OLLAMA_EMBED_MODEL, "prompt": chunk},
-            timeout=API_TIMEOUT,
+            {"model": OLLAMA_EMBED_MODEL, "prompt": c},
+            API_TIMEOUT,
         )
         emb = np.array(r.json().get("embedding", []), dtype="float32")
         vectors.append(emb)
-
-    # Now vectors is guaranteed non‐empty
     vec = np.mean(vectors, axis=0)
     cache[h] = vec
     save_cache(cache)
@@ -229,12 +217,12 @@ def embed_text(text: str) -> np.ndarray:
 # -------------------- Preprocessing --------------------
 def preprocess_thread(thread_dir: str, force: bool = False):
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
-    index_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
+    idx_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
     meta_index = os.path.join(thread_dir, METADATA_INDEX_NAME)
     posts_dir = os.path.join(thread_dir, "posts")
 
     if not force and all(
-        os.path.exists(p) for p in [meta_path, index_path, meta_index, posts_dir]
+        os.path.exists(p) for p in [meta_path, idx_path, meta_index, posts_dir]
     ):
         logger.info(f"Preprocessing exists for {thread_dir}, skipping.")
         return
@@ -243,10 +231,7 @@ def preprocess_thread(thread_dir: str, force: bool = False):
         shutil.rmtree(posts_dir)
     os.makedirs(posts_dir, exist_ok=True)
 
-    htmls = sorted(
-        [f for f in os.listdir(thread_dir) if f.endswith(".html")],
-        key=lambda x: int(re.search(r"page(\d+)", x).group(1)),
-    )
+    htmls = sorted(f for f in os.listdir(thread_dir) if f.endswith(".html"))
     raw_posts, metadata = [], []
     for fn in htmls:
         page = int(re.search(r"page(\d+)", fn).group(1))
@@ -280,53 +265,46 @@ def preprocess_thread(thread_dir: str, force: bool = False):
     if to_embed:
         with ThreadPoolExecutor() as ex:
             futures = {ex.submit(embed_text, p["content"]): p for p in to_embed}
-            for future in tqdm(
+            for fut in tqdm(
                 as_completed(futures), total=len(futures), desc="Embedding posts"
             ):
                 try:
-                    emb = future.result()
-                    cache[post_hash(futures[future]["content"])] = emb
+                    emb = fut.result()
+                    cache[post_hash(futures[fut]["content"])] = emb
                 except Exception as e:
                     logger.error(f"Embedding failed: {e}")
         save_cache(cache)
 
     vectors = []
-    for idx, post in enumerate(raw_posts):
-        h = post_hash(post["content"])
-        vectors.append(cache[h])
-        with open(os.path.join(posts_dir, f"{idx}.json"), "w") as f:
+    for i, post in enumerate(raw_posts):
+        vec = cache[post_hash(post["content"])]
+        vectors.append(vec)
+        with open(os.path.join(posts_dir, f"{i}.json"), "w") as f:
             json.dump(post, f)
 
     dim = vectors[0].shape[0]
-    idx = hnswlib.Index(space="cosine", dim=dim)
-    idx.init_index(max_elements=len(vectors), ef_construction=200, M=32)
-    idx.add_items(np.vstack(vectors))
-    idx.save_index(index_path)
+    index = hnswlib.Index(space="cosine", dim=dim)
+    index.init_index(max_elements=len(vectors), ef_construction=200, M=32)
+    index.add_items(np.vstack(vectors))
+    index.save_index(idx_path)
     with open(meta_path, "wb") as f:
         pickle.dump({"dim": dim, "count": len(vectors)}, f)
     logger.info(f"Built HNSW index with {len(vectors)} items.")
 
 
-# -------------------- HyDE & Batched Rerank --------------------
+# -------------------- HyDE --------------------
 def generate_hyde(query: str) -> str:
     prompt = f"Write a concise answer to help retrieve relevant forum posts.\n\nQuestion: {query}"
     try:
-        # Use http_post to respect retries
         r = http_post(
-            OLLAMA_API_URL,
-            {"model": OLLAMA_MODEL, "prompt": prompt},
-            timeout=API_TIMEOUT,
+            OLLAMA_API_URL, {"model": OLLAMA_MODEL, "prompt": prompt}, API_TIMEOUT
         )
         text = r.text
-
-        # Try full‐body JSON
         try:
             data = json.loads(text)
             return data.get("response", query)
         except Exception:
             pass
-
-        # Otherwise, scan lines backwards for a JSON object
         for line in reversed(text.splitlines()):
             line = line.strip()
             if not line:
@@ -336,209 +314,161 @@ def generate_hyde(query: str) -> str:
                 return obj.get("response", query)
             except Exception:
                 continue
-
-        # Fallback to raw text
         return text.strip() or query
-
     except Exception as e:
         logger.warning(f"HyDE generation failed: {e}")
         return query
 
 
+# -------------------- Rerank --------------------
 def batch_rerank(query: str, posts: List[Dict]) -> List[Tuple[int, Dict]]:
-    lines = [
-        f"Question: {query}",
-        "Rate relevance of each post from 0-10, respond ONLY with numbered list:",
-    ]
+    lines = [f"Question: {query}", "Rate relevance 0-10, numbered list:"]
     for i, p in enumerate(posts, 1):
-        snippet = p["content"][:300].replace("\n", " ")
-        lines.append(f"{i}. {snippet}...")
+        lines.append(f"{i}. {p['content'][:300].replace('\n', ' ')}...")
     prompt = "\n".join(lines)
     try:
         r = http_post(
             OLLAMA_API_URL,
             {"model": OLLAMA_MODEL, "prompt": prompt},
-            timeout=BATCH_RERANK_TIMEOUT,
+            BATCH_RERANK_TIMEOUT,
         )
-        data = r.json()
-        text = data.get("response", "")
+        data = json.loads(r.text) if r.text.strip().startswith("{") else None
+        text = data.get("response", "") if data else r.text
         scores = [int(m.group(1)) for m in re.finditer(r"\d+\.\s*(\d+)", text)]
         if len(scores) != len(posts):
-            raise ValueError("Mismatch scores/posts")
+            raise ValueError("Score count mismatch")
         return list(zip(scores, posts))
     except Exception as e:
-        logger.warning(f"Rerank batch failed: {e}")
+        logger.warning(f"Rerank failed: {e}")
         return [(0, p) for p in posts]
 
 
-# -------------------- Search Logic --------------------
+# -------------------- Search --------------------
 def find_posts_by_metadata(
-    thread_dir: str,
-    author: Optional[str] = None,
-    page: Optional[int] = None,
-    date: Optional[str] = None,
+    thread_dir: str, author=None, page=None, date=None
 ) -> List[Dict]:
-    meta_path = os.path.join(thread_dir, METADATA_INDEX_NAME)
+    path = os.path.join(thread_dir, METADATA_INDEX_NAME)
     posts_dir = os.path.join(thread_dir, "posts")
-    if not os.path.exists(meta_path):
+    if not os.path.exists(path):
         return []
-    metadata = json.load(open(meta_path))
-    matches = []
-    for idx, m in enumerate(metadata):
+    meta = json.load(open(path))
+    idxs = []
+    for i, m in enumerate(meta):
         if author and author.lower() in m.get("author", "").lower():
-            matches.append(idx)
+            idxs.append(i)
         elif page and page == m.get("page"):
-            matches.append(idx)
+            idxs.append(i)
         elif date and date.lower() in m.get("date", "").lower():
-            matches.append(idx)
-    results = []
-    for i in matches[:15]:
+            idxs.append(i)
+    res = []
+    for i in idxs[:15]:
         try:
-            results.append(json.load(open(os.path.join(posts_dir, f"{i}.json"))))
+            res.append(json.load(open(os.path.join(posts_dir, f"{i}.json"))))
         except:
-            continue
-    logger.info(f"Metadata search found {len(results)} posts.")
-    return results
+            pass
+    return res
 
 
-def find_relevant_posts(
-    query: str, thread_dir: str, top_k: int = FINAL_TOP_K
-) -> List[Dict]:
-    # Load index metadata and bail out early if empty or missing
+def find_relevant_posts(query: str, thread_dir: str, top_k=FINAL_TOP_K) -> List[Dict]:
     meta_path = os.path.join(thread_dir, INDEX_META_NAME)
-    index_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
-    if not os.path.exists(meta_path) or not os.path.exists(index_path):
-        logger.warning("Index metadata or HNSW index file missing")
+    idx_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
+    if not os.path.exists(meta_path) or not os.path.exists(idx_path):
         return []
-
     meta = pickle.load(open(meta_path, "rb"))
-    count = meta.get("count", 0)
-    dim = meta.get("dim", 0)
+    count, dim = meta.get("count", 0), meta.get("dim", 0)
     if count == 0 or dim == 0:
-        logger.warning("HNSW index is empty or invalid")
         return []
-
-    # Initialize and load the HNSW index
     idx = hnswlib.Index(space="cosine", dim=dim)
-    idx.load_index(index_path)
-
-    # Expand the query with HyDE
+    idx.load_index(idx_path)
     hyde_q = generate_hyde(query)
     q_emb = embed_text(hyde_q)
-
-    # Guard: embedding dimensionality must match index
-    if q_emb.ndim != 1 or q_emb.size != dim:
-        logger.warning(f"Query embedding dim {q_emb.size} != index dim {dim}")
+    if q_emb.size != dim:
+        logger.warning(f"Embedding dim {q_emb.size} != {dim}")
         return []
-
-    # Perform the kNN search
     labels, _ = idx.knn_query(q_emb, k=min(QUERY_RERANK_SIZE, count))
-
-    # Load candidate posts
     posts_dir = os.path.join(thread_dir, "posts")
-    candidates = []
-    for i in labels[0]:
-        path = os.path.join(posts_dir, f"{i}.json")
-        if os.path.exists(path):
-            candidates.append(json.load(open(path)))
-
-    # Rerank via LLM
-    scored = batch_rerank(query, candidates)
+    cands = [
+        json.load(open(os.path.join(posts_dir, f"{i}.json")))
+        for i in labels[0]
+        if os.path.exists(os.path.join(posts_dir, f"{i}.json"))
+    ]
+    scored = batch_rerank(query, cands)
     scored.sort(key=lambda x: x[0], reverse=True)
-
-    # Return top-k posts
-    final = [p for _, p in scored[:top_k]]
-    logger.info(f"Selected {len(final)} posts after rerank.")
-    return final
+    return [p for _, p in scored[:top_k]]
 
 
-# -------------------- Flask Routes --------------------
+# -------------------- Routes --------------------
 @app.route("/")
-def index():
+def index_route():
     return render_template("index.html", threads=list_threads())
 
 
 @app.route("/preprocess", methods=["POST"])
-def preprocess():
+def preprocess_route():
     data = request.json or {}
-    thread = data.get("thread_key", "").strip()
-    url = data.get("url", "").strip()
-    refresh = data.get("refresh", False)
+    thread, url, refresh = (
+        data.get("thread_key", ""),
+        data.get("url", ""),
+        data.get("refresh", False),
+    )
     if not thread and not url:
         return jsonify({"error": "thread_key or url required"}), 400
-    thread_key = thread or normalize_url(url).rstrip("/").split("/")[-1]
-    dir_ = get_thread_dir(thread_key)
-    htmls = [f for f in os.listdir(dir_) if f.endswith(".html")]
+    key = thread or normalize_url(url).rstrip("/").split("/")[-1]
+    d = get_thread_dir(key)
+    htmls = [f for f in os.listdir(d) if f.endswith(".html")]
     if url and (refresh or not htmls):
-        last = detect_last_page(url)
-        fetch_forum_pages(url, last, dir_)
-    preprocess_thread(dir_, force=refresh)
+        lp = detect_last_page(url)
+        fetch_forum_pages(url, lp, d)
+    preprocess_thread(d, force=refresh)
     return jsonify({"status": "ok"})
 
 
 @app.route("/ask", methods=["POST"])
-def ask():
+def ask_route():
     data = request.get_json(force=True) or {}
-    prompt = data.get("prompt", "").strip()
-    url = data.get("url", "").strip()
-    existing = data.get("existing_thread", "").strip()
-    refresh = data.get("refresh", False)
+    prompt, url, existing, refresh = (
+        data.get("prompt", ""),
+        data.get("url", ""),
+        data.get("existing_thread", ""),
+        data.get("refresh", False),
+    )
     if not prompt or not (url or existing):
-        return "Prompt and URL/existing thread required.", 400
-
-    thread_key = existing or normalize_url(url).rstrip("/").split("/")[-1]
-    thread_dir = get_thread_dir(thread_key)
-
-    htmls = [f for f in os.listdir(thread_dir) if f.endswith(".html")]
+        return "Prompt and URL/existing required", 400
+    key = existing or normalize_url(url).rstrip("/").split("/")[-1]
+    d = get_thread_dir(key)
+    htmls = [f for f in os.listdir(d) if f.endswith(".html")]
     if url and (refresh or not htmls):
-        last = detect_last_page(url)
-        fetch_forum_pages(url, last, thread_dir)
-    elif not htmls:
-        return jsonify(
-            {"error": "No HTML pages found. Please run /preprocess first."}
-        ), 400
-
-    preprocess_thread(thread_dir, force=refresh)
-
+        lp = detect_last_page(url)
+        fetch_forum_pages(url, lp, d)
+    preprocess_thread(d, force=refresh)
     lower = prompt.lower()
-    posts: List[Dict] = []
+    posts = []
     if "first post" in lower:
         try:
-            posts = [json.load(open(os.path.join(thread_dir, "posts", "0.json")))]
+            posts = [json.load(open(os.path.join(d, "posts", "0.json")))]
         except:
             posts = []
     elif "last post" in lower:
         try:
-            count = pickle.load(open(os.path.join(thread_dir, INDEX_META_NAME), "rb"))[
-                "count"
-            ]
-            if count > 0:
-                posts = [
-                    json.load(
-                        open(os.path.join(thread_dir, "posts", f"{count - 1}.json"))
-                    )
-                ]
+            cnt = pickle.load(open(os.path.join(d, INDEX_META_NAME), "rb"))["count"]
+            if cnt > 0:
+                posts = [json.load(open(os.path.join(d, "posts", f"{cnt - 1}.json")))]
         except:
             posts = []
     else:
-        author_m = re.search(r"posts by\s+([\w-]+)", lower)
-        page_m = re.search(r"on page\s+(\d+)", lower)
-        date_m = re.search(r"from\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", lower)
-        if author_m:
-            posts = find_posts_by_metadata(thread_dir, author=author_m.group(1))
-        elif page_m:
-            posts = find_posts_by_metadata(thread_dir, page=int(page_m.group(1)))
-        elif date_m:
-            posts = find_posts_by_metadata(thread_dir, date=date_m.group(1))
-
+        am, pm, dm = (
+            re.search(r"posts by\s+([\w-]+)", lower),
+            re.search(r"on page\s+(\d+)", lower),
+            re.search(r"from\s+(.+)", lower),
+        )
+        if am:
+            posts = find_posts_by_metadata(d, author=am.group(1))
+        elif pm:
+            posts = find_posts_by_metadata(d, page=int(pm.group(1)))
+        elif dm:
+            posts = find_posts_by_metadata(d, date=dm.group(1))
     if not posts:
-        try:
-            posts = find_relevant_posts(prompt, thread_dir)
-        except FileNotFoundError:
-            return jsonify(
-                {"error": "Index missing after preprocessing. Retry or refresh."}
-            ), 500
-
+        posts = find_relevant_posts(prompt, d)
     context = (
         "\n\n".join(
             f"--- Post by {p['author']} on {p['date']} (Page {p['page']}) ---\nURL: {p['url']}\n\n{p['content']}"
@@ -546,36 +476,33 @@ def ask():
         )
         or "No relevant information found."
     )
+    system = f"You are an expert forum analyst. Use *only* the provided context below to answer the question.\n\n---CONTEXT---\n{context}\n---END CONTEXT---\n\nQuestion: {prompt}"
 
-    system = (
-        "You are an expert forum analyst. Use *only* the provided context below to answer the question.\n\n"
-        f"---CONTEXT---\n{context}\n---END CONTEXT---\n\nQuestion: {prompt}"
-    )
-
-    def stream_response():
+    def stream():
         try:
-            payload = {"model": OLLAMA_MODEL, "prompt": system, "stream": True}
-            with requests.post(
-                OLLAMA_API_URL, json=payload, stream=True, timeout=60
-            ) as r:
-                r.raise_for_status()
-                for line in r.iter_lines(decode_unicode=True):
-                    if line:
-                        chunk = json.loads(line)
-                        yield chunk.get("response", "")
+            r = requests.post(
+                OLLAMA_API_URL,
+                json={"model": OLLAMA_MODEL, "prompt": system, "stream": True},
+                stream=True,
+                timeout=60,
+            )
+            r.raise_for_status()
+            for L in r.iter_lines(decode_unicode=True):
+                if L:
+                    yield json.loads(L).get("response", "")
         except Exception as e:
-            logger.error(f"Error streaming from LLM: {e}")
+            logger.error(f"LLM stream error: {e}")
             yield "[Error communicating with the language model]\n"
 
-    return Response(stream_response(), mimetype="text/plain")
+    return Response(stream(), mimetype="text/plain")
 
 
 @app.route("/delete_thread", methods=["POST"])
-def delete_thread():
+def delete_route():
     data = request.json or {}
     key = data.get("thread_key", "").strip()
     if not key or any(c in key for c in ("..", "/")):
-        return "Invalid thread key", 400
+        return "Invalid key", 400
     td = os.path.join(BASE_TMP_DIR, key)
     if os.path.exists(td):
         shutil.rmtree(td)
