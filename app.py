@@ -8,7 +8,7 @@ import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import urljoin
 
 import hnswlib
@@ -21,16 +21,16 @@ from tqdm import tqdm
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "replace-with-a-secure-random-secret")
 
+# --- Configuration ---
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
 OLLAMA_EMBED_API_URL = os.environ.get(
     "OLLAMA_EMBED_API_URL", "http://localhost:11434/api/embeddings"
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "deepseek-r1:1.5b")
 OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text:v1.5")
-
 BASE_TMP_DIR = os.environ.get("BASE_TMP_DIR", "tmp")
-INDEX_META_NAME = "index_meta.pkl"
-HNSW_INDEX_NAME = "index_hnsw.bin"
+INDEX_META_NAME, HNSW_INDEX_NAME = "index_meta.pkl", "index_hnsw.bin"
+METADATA_INDEX_NAME = "metadata_index.json"
 CACHE_PATH = os.path.join(BASE_TMP_DIR, "embeddings_cache.pkl")
 
 logging.basicConfig(
@@ -40,8 +40,6 @@ logger = logging.getLogger(__name__)
 
 
 # --- Utility Functions ---
-
-
 def post_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -60,9 +58,11 @@ def list_threads() -> List[str]:
     if not os.path.exists(BASE_TMP_DIR):
         return []
     return sorted(
-        d
-        for d in os.listdir(BASE_TMP_DIR)
-        if os.path.isdir(os.path.join(BASE_TMP_DIR, d))
+        [
+            d
+            for d in os.listdir(BASE_TMP_DIR)
+            if os.path.isdir(os.path.join(BASE_TMP_DIR, d))
+        ]
     )
 
 
@@ -80,90 +80,76 @@ def clean_post_content(raw: str) -> str:
     return text
 
 
-# --- HTML Parsing Functions ---
+# --- HTML Parsing ---
+def extract_date(el) -> str:
+    return (el.find("time") or {}).get("datetime", "unknown-date")
 
 
-def extract_date(post_element) -> str:
-    time_tag = post_element.find("time")
-    return (
-        time_tag["datetime"]
-        if time_tag and time_tag.has_attr("datetime")
-        else "unknown-date"
-    )
+def extract_author(el) -> str:
+    return el.get("data-author", "unknown-author")
 
 
-def extract_author(post_element) -> str:
-    return post_element.get("data-author", "unknown-author")
-
-
-def extract_content(post_element) -> str:
+def extract_content(el) -> str:
     for selector in ["div.message-userContent .bbWrapper", ".message-body .bbWrapper"]:
-        content_div = post_element.select_one(selector)
+        content_div = el.select_one(selector)
         if content_div:
             return content_div.get_text(separator="\n").strip()
     return ""
 
 
-def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
-    link = post_element.select_one("ul.message-attribution-opposite a[href]")
+def extract_post_url(el: BeautifulSoup, base: str) -> str:
+    link = el.select_one("ul.message-attribution-opposite a[href]")
     if link and link["href"]:
-        return urljoin(canonical_base, link["href"])
-    if post_element.get("data-content", "").startswith("post-"):
-        post_id = post_element["data-content"].split("-")[1]
-        return urljoin(canonical_base, f"posts/{post_id}/")
-    return f"{canonical_base}#unknown-post-id"
+        return urljoin(base, link["href"])
+    if el.get("data-content", "").startswith("post-"):
+        post_id = el["data-content"].split("-")[1]
+        return urljoin(base, f"posts/{post_id}/")
+    return f"{base}#unknown-post-id"
 
 
 def extract_canonical_url(soup: BeautifulSoup) -> str:
     link = soup.find("link", rel="canonical")
     if link and link.has_attr("href"):
-        url = link["href"]
-        return re.sub(r"page-\d+/?$", "", url).rstrip("/") + "/"
+        return re.sub(r"page-\d+/?$", "", link["href"]).rstrip("/") + "/"
     return "unknown-thread/"
 
 
-# --- Web Scraping and File Handling ---
-
-
-def detect_last_page(base_url: str) -> int:
+# --- Web Scraping & File Handling ---
+def detect_last_page(url: str) -> int:
     try:
-        res = requests.get(base_url)
+        res = requests.get(url, timeout=10)
         res.raise_for_status()
         soup = BeautifulSoup(res.text, "html.parser")
         page_jump = soup.select_one("input.js-pageJumpPage[max]")
         if page_jump:
             return int(page_jump["max"])
-        last_page_link = soup.select_one(".pageNav-main > li:last-child a")
-        if last_page_link and last_page_link.text.isdigit():
-            return int(last_page_link.text)
+        last_link = soup.select_one(".pageNav-main > li:last-child a")
+        if last_link and last_link.text.isdigit():
+            return int(last_link.text)
         return 1
     except Exception as e:
-        logger.error(f"Could not detect last page: {e}")
+        logger.error(f"Could not detect last page for {url}: {e}")
         return 1
 
 
-def fetch_forum_pages(base_url: str, start: int, end: int, save_dir: str) -> None:
-    os.makedirs(save_dir, exist_ok=True)
+def fetch_forum_pages(base_url: str, end: int, save_dir: str):
     base_url = re.sub(r"page-\d+/?$", "", base_url).rstrip("/")
-    for i in range(start, end + 1):
-        page_url = f"{base_url}/page-{i}"
-        output_path = os.path.join(save_dir, f"page{i}.html")
-        if not os.path.exists(output_path):
-            logger.info(f"Fetching page {i}...")
+    for i in range(1, end + 1):
+        path = os.path.join(save_dir, f"page{i}.html")
+        if not os.path.exists(path):
+            logger.info(f"Fetching page {i}/{end}...")
             try:
-                res = requests.get(page_url)
+                res = requests.get(f"{base_url}/page-{i}", timeout=10)
                 res.raise_for_status()
-                with open(output_path, "w", encoding="utf-8") as f:
+                with open(path, "w", encoding="utf-8") as f:
                     f.write(res.text)
                 time.sleep(0.5)
             except requests.RequestException as e:
-                logger.error(f"Failed to fetch {page_url}: {e}")
+                logger.error(f"Failed to fetch page {i}: {e}")
                 break
 
 
-# --- Caching and Embeddings ---
-
-
+# --- Caching & Embeddings ---
 def load_cache() -> Dict[str, np.ndarray]:
     if os.path.exists(CACHE_PATH):
         try:
@@ -175,7 +161,6 @@ def load_cache() -> Dict[str, np.ndarray]:
 
 
 def save_cache(cache: Dict[str, np.ndarray]):
-    os.makedirs(BASE_TMP_DIR, exist_ok=True)
     with open(CACHE_PATH, "wb") as f:
         pickle.dump(cache, f)
 
@@ -188,31 +173,26 @@ def embed_text(text: str) -> np.ndarray:
     return np.array(res.json()["embedding"], dtype="float32")
 
 
-# --- Core Preprocessing and Search Logic ---
-
-
-def preprocess_thread(thread_dir: str, force: bool = False) -> None:
-    meta_path, hnsw_path = (
-        os.path.join(thread_dir, INDEX_META_NAME),
-        os.path.join(thread_dir, HNSW_INDEX_NAME),
-    )
-    posts_dir = os.path.join(thread_dir, "posts")
-
-    if not force and all(os.path.exists(p) for p in [meta_path, hnsw_path, posts_dir]):
+# --- Core Logic: Preprocessing & Search ---
+def preprocess_thread(thread_dir: str, force: bool = False):
+    paths = {
+        p: os.path.join(thread_dir, p)
+        for p in [INDEX_META_NAME, HNSW_INDEX_NAME, METADATA_INDEX_NAME, "posts"]
+    }
+    if not force and all(os.path.exists(v) for v in paths.values()):
         logger.info(f"Index exists for {thread_dir}, skipping preprocessing.")
         return
 
-    logger.info(f"Starting preprocessing for thread at {thread_dir}")
-    if force and os.path.exists(posts_dir):
-        shutil.rmtree(posts_dir)
-    os.makedirs(posts_dir, exist_ok=True)
+    logger.info(f"Starting preprocessing for {thread_dir}")
+    if force and os.path.exists(paths["posts"]):
+        shutil.rmtree(paths["posts"])
+    os.makedirs(paths["posts"], exist_ok=True)
 
     html_files = sorted(
         [f for f in os.listdir(thread_dir) if f.endswith(".html")],
         key=lambda x: int(re.search(r"page(\d+)", x).group(1)),
     )
-
-    raw_posts = []
+    raw_posts, metadata_list = [], []
     for fn in html_files:
         page_num = int(re.search(r"page(\d+)", fn).group(1))
         with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
@@ -221,45 +201,45 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
         for el in soup.select("article.message"):
             content = clean_post_content(extract_content(el))
             if content:
-                raw_posts.append(
+                post_data = {
+                    "page": page_num,
+                    "date": extract_date(el),
+                    "author": extract_author(el),
+                    "content": content,
+                    "url": extract_post_url(el, base_url),
+                }
+                raw_posts.append(post_data)
+                metadata_list.append(
                     {
-                        "page": page_num,
-                        "date": extract_date(el),
-                        "author": extract_author(el),
-                        "content": content,
-                        "url": extract_post_url(el, base_url),
+                        "author": post_data["author"],
+                        "date": post_data["date"],
+                        "page": post_data["page"],
                     }
                 )
 
-    logger.info(f"Found {len(raw_posts)} posts to process.")
-    cache = load_cache()
+    with open(paths[METADATA_INDEX_NAME], "w") as f:
+        json.dump(metadata_list, f)
 
-    to_embed_contents = [
-        post["content"]
-        for post in raw_posts
-        if post_hash(post["content"]) not in cache or force
+    cache = load_cache()
+    to_embed = [
+        p["content"] for p in raw_posts if post_hash(p["content"]) not in cache or force
     ]
     logger.info(
-        f"{len(raw_posts) - len(to_embed_contents)} posts found in cache. Embedding {len(to_embed_contents)} posts."
+        f"{len(raw_posts) - len(to_embed)} posts in cache. Embedding {len(to_embed)} new posts."
     )
 
-    if to_embed_contents:
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            future_to_content = {
-                executor.submit(embed_text, content): content
-                for content in to_embed_contents
+    if to_embed:
+        with ThreadPoolExecutor() as ex:
+            future_map = {
+                ex.submit(embed_text, content): content for content in to_embed
             }
             for future in tqdm(
-                as_completed(future_to_content),
-                total=len(to_embed_contents),
-                desc="Embedding",
+                as_completed(future_map), total=len(to_embed), desc="Embedding"
             ):
                 try:
-                    embedding = future.result()
-                    content = future_to_content[future]
-                    cache[post_hash(content)] = embedding
+                    cache[post_hash(future_map[future])] = future.result()
                 except Exception as e:
-                    logger.error(f"Embedding failed for a post: {e}")
+                    logger.error(f"Embedding failed: {e}")
         save_cache(cache)
 
     final_embeddings = []
@@ -267,41 +247,48 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
         h = post_hash(post["content"])
         if h in cache:
             final_embeddings.append(cache[h])
-            with open(os.path.join(posts_dir, f"{i}.json"), "w") as f:
+            with open(os.path.join(paths["posts"], f"{i}.json"), "w") as f:
                 json.dump(post, f)
 
     if not final_embeddings:
-        logger.error("No valid embeddings were generated. Aborting index creation.")
-        return
+        return logger.error("No embeddings found, aborting index.")
 
-    dim, num_elements = final_embeddings[0].shape[0], len(final_embeddings)
+    dim, count = final_embeddings[0].shape[0], len(final_embeddings)
     idx = hnswlib.Index(space="cosine", dim=dim)
-    idx.init_index(max_elements=num_elements, ef_construction=200, M=32)
+    idx.init_index(max_elements=count, ef_construction=200, M=32)
     idx.add_items(np.vstack(final_embeddings))
-    idx.save_index(hnsw_path)
+    idx.save_index(paths[HNSW_INDEX_NAME])
+    with open(paths[INDEX_META_NAME], "wb") as f:
+        pickle.dump({"dim": dim, "count": count}, f)
+    logger.info(f"HNSW index with {count} items saved.")
 
-    with open(meta_path, "wb") as f:
-        pickle.dump({"dim": dim, "count": num_elements}, f)
-    logger.info(f"HNSW index with {num_elements} items saved successfully.")
 
-
-def batch_llm_score_posts(query: str, posts: List[Dict]) -> List[tuple[int, Dict]]:
-    prompt_lines = [
-        f"Query: {query}\nRate the relevance of each post below from 0 to 10. Respond ONLY with a numbered list of scores (e.g., '1. 7').\n"
-    ]
-    for i, post in enumerate(posts, 1):
-        prompt_lines.append(
-            f"{i}. Post by {post['author']}: {post['content'][:400]}..."
-        )
-
+def generate_hypothetical_answer(query: str) -> str:
+    prompt = f"Write a detailed, hypothetical answer to this question to help find relevant documents.\n\nQuestion: {query}"
     try:
         res = requests.post(
             OLLAMA_API_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": "\n".join(prompt_lines),
-                "stream": False,
-            },
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=15,
+        )
+        res.raise_for_status()
+        return res.json().get("response", query)
+    except Exception as e:
+        logger.error(f"HyDE generation failed: {e}")
+        return query
+
+
+def batch_llm_score_posts(query: str, posts: List[Dict]) -> List[tuple[int, Dict]]:
+    lines = [
+        f"Query: {query}\nRate relevance of each post from 0-10. Respond ONLY with a numbered list of scores (e.g., '1. 7').\n"
+    ]
+    for i, post in enumerate(posts, 1):
+        lines.append(f"{i}. Post by {post['author']}: {post['content'][:400]}...")
+    try:
+        res = requests.post(
+            OLLAMA_API_URL,
+            json={"model": OLLAMA_MODEL, "prompt": "\n".join(lines), "stream": False},
+            timeout=30,
         )
         res.raise_for_status()
         text = res.json().get("response", "")
@@ -316,47 +303,68 @@ def batch_llm_score_posts(query: str, posts: List[Dict]) -> List[tuple[int, Dict
         return [(0, p) for p in posts]
 
 
-def generate_hypothetical_answer(query: str) -> str:
-    prompt = f"Write a detailed, hypothetical answer to the user's question. This will be used to find relevant documents.\n\nQuestion: {query}"
-    try:
-        res = requests.post(
-            OLLAMA_API_URL,
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-        )
-        res.raise_for_status()
-        return res.json().get("response", query)
-    except Exception as e:
-        logger.error(f"HyDE generation failed: {e}")
-        return query
-
-
-def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dict]:
-    meta_path, hnsw_path, posts_dir = [
-        os.path.join(thread_dir, name)
-        for name in [INDEX_META_NAME, HNSW_INDEX_NAME, "posts"]
-    ]
-    if not all(os.path.exists(p) for p in [meta_path, hnsw_path, posts_dir]):
+def find_posts_by_metadata(
+    thread_dir: str,
+    author: Optional[str] = None,
+    page: Optional[int] = None,
+    date: Optional[str] = None,
+) -> List[Dict]:
+    """Efficiently finds posts by filtering the metadata index."""
+    posts_dir = os.path.join(thread_dir, "posts")
+    metadata_path = os.path.join(thread_dir, METADATA_INDEX_NAME)
+    if not os.path.exists(metadata_path):
         return []
 
-    with open(meta_path, "rb") as f:
+    with open(metadata_path, "r") as f:
+        metadata_list = json.load(f)
+
+    matching_indices = []
+    for i, meta in enumerate(metadata_list):
+        if author and author.lower() in meta.get("author", "").lower():
+            matching_indices.append(i)
+        elif page and page == meta.get("page"):
+            matching_indices.append(i)
+        elif date and date.lower() in meta.get("date", "").lower():
+            matching_indices.append(i)
+
+    results = []
+    # To avoid overwhelming the context, limit results for broad queries
+    for i in matching_indices[:15]:
+        try:
+            with open(os.path.join(posts_dir, f"{i}.json"), "r") as f:
+                results.append(json.load(f))
+        except FileNotFoundError:
+            continue
+    logger.info(f"Found {len(results)} posts via metadata filter.")
+    return results
+
+
+def find_relevant_posts(query: str, thread_dir: str, top_k: int = 7) -> List[Dict]:
+    """Finds relevant posts using HyDE, semantic search, and reranking."""
+    paths = {
+        p: os.path.join(thread_dir, p)
+        for p in [INDEX_META_NAME, HNSW_INDEX_NAME, "posts"]
+    }
+    if not all(os.path.exists(v) for v in paths.values()):
+        return []
+
+    with open(paths[INDEX_META_NAME], "rb") as f:
         meta = pickle.load(f)
     idx = hnswlib.Index(space="cosine", dim=meta["dim"])
-    idx.load_index(hnsw_path)
+    idx.load_index(paths[HNSW_INDEX_NAME])
 
     hyde_query = generate_hypothetical_answer(query)
     query_emb = embed_text(hyde_query)
-    candidate_labels, _ = idx.knn_query(query_emb, k=25)
+    labels, _ = idx.knn_query(query_emb, k=25)
 
-    candidates = []
-    for i in candidate_labels[0]:
-        try:
-            with open(os.path.join(posts_dir, f"{i}.json"), "r") as f:
-                candidates.append(json.load(f))
-        except FileNotFoundError:
-            continue
-
-    scored_posts = batch_llm_score_posts(query, candidates)
-    scored_posts.sort(key=lambda x: x[0], reverse=True)
+    candidates = [
+        json.load(open(os.path.join(paths["posts"], f"{i}.json")))
+        for i in labels[0]
+        if os.path.exists(os.path.join(paths["posts"], f"{i}.json"))
+    ]
+    scored_posts = sorted(
+        batch_llm_score_posts(query, candidates), key=lambda x: x[0], reverse=True
+    )
 
     final_posts = [post for score, post in scored_posts[:top_k]]
     logger.info(
@@ -366,8 +374,6 @@ def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dic
 
 
 # --- Flask Routes ---
-
-
 @app.route("/")
 def index():
     return render_template("index.html", threads=list_threads())
@@ -375,53 +381,70 @@ def index():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    data = request.get_json(force=True)
-    prompt = data.get("prompt", "").strip()
-    url = data.get("url", "").strip()
-    existing = data.get("existing_thread", "").strip()
-    refresh = data.get("refresh", False)
+    data = request.get_json()
+    prompt, url, existing, refresh = (
+        data.get("prompt", "").strip(),
+        data.get("url", "").strip(),
+        data.get("existing_thread", "").strip(),
+        data.get("refresh", False),
+    )
 
-    if not prompt or (not url and not existing):
-        return "Prompt and URL/existing thread are required.", 400
+    if not prompt or not (url or existing):
+        return "Prompt and URL/existing thread required.", 400
 
     thread_key = existing or normalize_url(url).rstrip("/").split("/")[-1].split(".")[0]
-    logger.info(f"Processing request for thread: '{thread_key}'")
     thread_dir = get_thread_dir(thread_key)
 
-    # --- Corrected Fetching and Preprocessing Logic ---
-    has_html = any(f.endswith(".html") for f in os.listdir(thread_dir))
-    if url and not has_html:
-        logger.info(f"No HTML found. Fetching pages for '{thread_key}'.")
-        last_page = detect_last_page(url)
-        fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
+    if url and (
+        not any(f.endswith(".html") for f in os.listdir(thread_dir))
+        or (refresh and not existing)
+    ):
+        logger.info(f"Fetching pages for '{thread_key}'.")
+        fetch_forum_pages(url, detect_last_page(url), thread_dir)
 
     preprocess_thread(thread_dir, force=refresh)
 
-    # --- Hybrid Search: Intent Detection for Factual Questions ---
+    # --- Hybrid Search Logic ---
     posts = []
-    prompt_lower = prompt.lower()
-    if any(s in prompt_lower for s in ["first post", "earliest post", "oldest post"]):
-        logger.info("Factual query detected: retrieving first post.")
+    p_lower = prompt.lower()
+
+    author_match = re.search(r"posts by\s+([a-zA-Z0-9_-]+)", p_lower)
+    page_match = re.search(r"on page\s+(\d+)", p_lower)
+    date_match = re.search(
+        r"from\s+([a-zA-Z]+\s+\d{1,2},?\s+\d{4})", p_lower
+    )  # Matches "May 4, 2024" or "May 4 2024"
+
+    if any(s in p_lower for s in ["first post", "earliest post"]):
+        logger.info("Intent: Get first post.")
         try:
-            with open(os.path.join(thread_dir, "posts", "0.json"), "r") as f:
-                posts = [json.load(f)]
+            posts = [json.load(open(os.path.join(thread_dir, "posts", "0.json")))]
         except FileNotFoundError:
-            logger.error("Could not find first post (0.json).")
-    elif any(s in prompt_lower for s in ["last post", "latest post", "newest post"]):
-        logger.info("Factual query detected: retrieving last post.")
+            logger.error("Could not find first post.")
+    elif any(s in p_lower for s in ["last post", "newest post"]):
+        logger.info("Intent: Get last post.")
         try:
             with open(os.path.join(thread_dir, INDEX_META_NAME), "rb") as f:
                 count = pickle.load(f).get("count", 0)
             if count > 0:
-                with open(
-                    os.path.join(thread_dir, "posts", f"{count - 1}.json"), "r"
-                ) as f:
-                    posts = [json.load(f)]
+                posts = [
+                    json.load(
+                        open(os.path.join(thread_dir, "posts", f"{count - 1}.json"))
+                    )
+                ]
         except FileNotFoundError:
             logger.error("Could not find last post.")
+    elif author_match:
+        logger.info(f"Intent: Get posts by author '{author_match.group(1)}'.")
+        posts = find_posts_by_metadata(thread_dir, author=author_match.group(1))
+    elif page_match:
+        logger.info(f"Intent: Get posts on page {page_match.group(1)}.")
+        posts = find_posts_by_metadata(thread_dir, page=int(page_match.group(1)))
+    elif date_match:
+        logger.info(f"Intent: Get posts on date '{date_match.group(1)}'.")
+        posts = find_posts_by_metadata(thread_dir, date=date_match.group(1))
 
-    if not posts:  # If no special intent was detected, or if factual retrieval failed
-        posts = find_relevant_posts(prompt, thread_dir)
+    if not posts:
+        posts = find_relevant_posts(prompt, thread_dir)  # Fallback to semantic search
 
     context = (
         "\n\n".join(
@@ -429,17 +452,9 @@ def ask():
             for p in posts
         )
         if posts
-        else "No relevant information was found in the thread to answer the question."
+        else "No relevant information found."
     )
-
-    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context consists of one or more posts from a forum thread. If the answer cannot be found in the context, say so.
-
----CONTEXT---
-{context}
----END CONTEXT---
-
-Question: {prompt}
-"""
+    system = f"You are an expert forum analyst. Use *only* the provided context below to answer the question.\n\n---CONTEXT---\n{context}\n---END CONTEXT---\n\nQuestion: {prompt}"
 
     def stream_response():
         try:
@@ -448,8 +463,7 @@ Question: {prompt}
                 r.raise_for_status()
                 for line in r.iter_lines():
                     if line:
-                        chunk = json.loads(line)
-                        yield chunk.get("response", "")
+                        yield json.loads(line).get("response", "")
         except Exception as e:
             logger.error(f"Error streaming from LLM: {e}")
             yield "Error communicating with the language model."
@@ -459,13 +473,11 @@ Question: {prompt}
 
 @app.route("/delete_thread", methods=["POST"])
 def delete_thread():
-    data = request.get_json(force=True)
-    key = data.get("thread_key", "").strip()
+    key = request.get_json().get("thread_key", "").strip()
     if not key or any(c in key for c in ("..", "/")):
         return "Invalid thread key", 400
     td = os.path.join(BASE_TMP_DIR, key)
     if os.path.exists(td):
-        logger.info(f"Deleting thread directory: {td}")
         shutil.rmtree(td)
         return f"Deleted {key}", 200
     return "Not found", 404
