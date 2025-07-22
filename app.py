@@ -22,7 +22,6 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "replace-with-a-secure-random-secret")
 
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
-# Switch to the GPU‑accelerated embedding model by default:
 OLLAMA_EMBED_API_URL = os.environ.get(
     "OLLAMA_EMBED_API_URL", "http://localhost:11434/api/embeddings"
 )
@@ -40,120 +39,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def post_hash(post):
-    return hashlib.sha256(post["content"].encode("utf-8")).hexdigest()
+# --- Utility Functions ---
 
 
-def extract_date(post_element) -> str:
-    time_tag = post_element.find("time")
-    if time_tag and time_tag.has_attr("datetime"):
-        return time_tag["datetime"]
-    return "unknown-date"
-
-
-def extract_author(post_element) -> str:
-    return post_element.get("data-author", "unknown-author")
-
-
-def extract_content(post_element) -> str:
-    for selector in [
-        "div.message-userContent .bbWrapper",
-        "div.bbWrapper",
-        ".message-content .bbWrapper",
-        ".message-body .bbWrapper",
-    ]:
-        content_div = post_element.select_one(selector)
-        if content_div:
-            return content_div.get_text(separator="\n").strip()
-    return ""
-
-
-def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
-    """Returns the full permalink to the post."""
-    # Try permalink link
-    link = post_element.select_one("ul.message-attribution-opposite a[href]")
-    if link:
-        return urljoin(canonical_base, link["href"])
-
-    # Fallback: use data-content="post-XXXXX"
-    if post_element.get("data-content", "").startswith("post-"):
-        post_id = post_element["data-content"].split("-")[1]
-        return urljoin(canonical_base, f"posts/{post_id}/")
-
-    return canonical_base + "#unknown"
-
-
-def extract_canonical_url(soup: BeautifulSoup) -> str:
-    """Extracts the canonical base thread URL."""
-    link = soup.find("link", rel="canonical")
-    if link and link.has_attr("href"):
-        url = link["href"]
-        return re.sub(r"page-\d+/?$", "", url).rstrip("/") + "/"
-    return "unknown-thread/"
-
-
-def detect_last_page(base_url: str) -> int:
-    res = requests.get(base_url)
-    if res.status_code != 200:
-        logger.error(f"Error: Received status code {res.status_code}")
-        return 1
-
-    soup = BeautifulSoup(res.text, "html.parser")
-    logger.info("Base page pulled successfully.")
-
-    last_page = 1
-
-    page_jump_input = soup.select_one('.js-pageJumpPage[type="number"]')
-    if page_jump_input and "max" in page_jump_input.attrs:
-        try:
-            max_page_from_input = int(page_jump_input["max"])
-            if max_page_from_input > last_page:
-                last_page = max_page_from_input
-                logger.info(f"Detected last page from page jump input: {last_page}")
-                return last_page
-        except ValueError:
-            pass
-
-    page_links = soup.select(".pageNav-page a")
-    for link in page_links:
-        try:
-            href = link.get("href")
-            if href:
-                match = re.search(r"page-(\d+)", href)
-                if match:
-                    page_num_from_href = int(match.group(1))
-                    if page_num_from_href > last_page:
-                        last_page = page_num_from_href
-
-            link_text = link.text.strip()
-            if link_text.isdigit():
-                page_num_from_text = int(link_text)
-                if page_num_from_text > last_page:
-                    last_page = page_num_from_text
-        except ValueError:
-            continue
-
-    logger.info(f"Detected last page: {last_page}")
-    return last_page
-
-
-def fetch_forum_pages(base_url: str, start: int, end: int, save_dir: str) -> None:
-    os.makedirs(save_dir, exist_ok=True)
-    base_url = re.sub(r"page-\d+/?$", "", base_url).rstrip("/")
-
-    for i in range(start, end + 1):
-        page_url = f"{base_url}/page-{i}"
-        output_path = os.path.join(save_dir, f"page{i}.html")
-
-        if os.path.exists(output_path):
-            continue
-
-        logger.info(f"Fetching page {i}...")
-        res = requests.get(page_url)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(res.text)
-
-        time.sleep(0.5)
+def post_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def normalize_url(url: str) -> str:
@@ -190,16 +80,97 @@ def clean_post_content(raw: str) -> str:
     return text
 
 
+# --- HTML Parsing Functions ---
+
+
+def extract_date(post_element) -> str:
+    time_tag = post_element.find("time")
+    return (
+        time_tag["datetime"]
+        if time_tag and time_tag.has_attr("datetime")
+        else "unknown-date"
+    )
+
+
+def extract_author(post_element) -> str:
+    return post_element.get("data-author", "unknown-author")
+
+
+def extract_content(post_element) -> str:
+    for selector in ["div.message-userContent .bbWrapper", ".message-body .bbWrapper"]:
+        content_div = post_element.select_one(selector)
+        if content_div:
+            return content_div.get_text(separator="\n").strip()
+    return ""
+
+
+def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
+    link = post_element.select_one("ul.message-attribution-opposite a[href]")
+    if link and link["href"]:
+        return urljoin(canonical_base, link["href"])
+    if post_element.get("data-content", "").startswith("post-"):
+        post_id = post_element["data-content"].split("-")[1]
+        return urljoin(canonical_base, f"posts/{post_id}/")
+    return f"{canonical_base}#unknown-post-id"
+
+
+def extract_canonical_url(soup: BeautifulSoup) -> str:
+    link = soup.find("link", rel="canonical")
+    if link and link.has_attr("href"):
+        url = link["href"]
+        return re.sub(r"page-\d+/?$", "", url).rstrip("/") + "/"
+    return "unknown-thread/"
+
+
+# --- Web Scraping and File Handling ---
+
+
+def detect_last_page(base_url: str) -> int:
+    try:
+        res = requests.get(base_url)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.text, "html.parser")
+        page_jump = soup.select_one("input.js-pageJumpPage[max]")
+        if page_jump:
+            return int(page_jump["max"])
+        last_page_link = soup.select_one(".pageNav-main > li:last-child a")
+        if last_page_link and last_page_link.text.isdigit():
+            return int(last_page_link.text)
+        return 1
+    except Exception as e:
+        logger.error(f"Could not detect last page: {e}")
+        return 1
+
+
+def fetch_forum_pages(base_url: str, start: int, end: int, save_dir: str) -> None:
+    os.makedirs(save_dir, exist_ok=True)
+    base_url = re.sub(r"page-\d+/?$", "", base_url).rstrip("/")
+    for i in range(start, end + 1):
+        page_url = f"{base_url}/page-{i}"
+        output_path = os.path.join(save_dir, f"page{i}.html")
+        if not os.path.exists(output_path):
+            logger.info(f"Fetching page {i}...")
+            try:
+                res = requests.get(page_url)
+                res.raise_for_status()
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(res.text)
+                time.sleep(0.5)
+            except requests.RequestException as e:
+                logger.error(f"Failed to fetch {page_url}: {e}")
+                break
+
+
+# --- Caching and Embeddings ---
+
+
 def load_cache() -> Dict[str, np.ndarray]:
     if os.path.exists(CACHE_PATH):
         try:
             with open(CACHE_PATH, "rb") as f:
                 return pickle.load(f)
         except (EOFError, pickle.UnpicklingError):
-            logger.warning(
-                f"Cache file at {CACHE_PATH} is corrupted. Starting a new cache."
-            )
-            return {}
+            logger.warning(f"Cache file {CACHE_PATH} is corrupted. Starting fresh.")
     return {}
 
 
@@ -209,253 +180,190 @@ def save_cache(cache: Dict[str, np.ndarray]):
         pickle.dump(cache, f)
 
 
-def preprocess_thread(thread_dir: str, force: bool = False) -> None:
-    meta_path = os.path.join(thread_dir, INDEX_META_NAME)
-    hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
-    posts_dir = os.path.join(thread_dir, "posts")
-
-    if not force and os.path.exists(meta_path) and os.path.exists(hnsw_path):
-        logger.info(f"[Preprocess] Index exists for {thread_dir}, skipping.")
-        return
-
-    logger.info(f"[Preprocess] Starting for thread at {thread_dir}")
-    if os.path.exists(posts_dir) and force:
-        shutil.rmtree(posts_dir)
-    os.makedirs(posts_dir, exist_ok=True)
-
-    all_files_in_dir = os.listdir(thread_dir)
-    html_files = [f for f in all_files_in_dir if f.endswith(".html")]
-    sorted_html_files = sorted(
-        html_files, key=lambda x: int(re.search(r"page(\d+)\.html", x).group(1))
-    )
-
-    raw_posts = []
-    for fn in sorted_html_files:
-        page = int(re.search(r"page(\d+)\.html", fn).group(1))
-        with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
-            soup = BeautifulSoup(f, "html.parser")
-
-        base_thread_url = extract_canonical_url(soup)
-
-        for el in soup.select("article.message"):
-            content = extract_content(el).strip()
-            if content:
-                raw_posts.append(
-                    {
-                        "page": page,
-                        "date": extract_date(el),
-                        "author": extract_author(el),
-                        "content": clean_post_content(content),
-                        "url": extract_post_url(el, base_thread_url),
-                    }
-                )
-            else:
-                logger.warning(f"Empty or unparseable post at page {page}, skipping.")
-
-    logger.info(f"[Preprocess] Found {len(raw_posts)} posts to embed.")
-    cache = load_cache()
-
-    embeddings, to_embed, post_ids = [], [], []
-    for i, post in enumerate(raw_posts):
-        h = post_hash(post)
-        with open(os.path.join(posts_dir, f"{i}.json"), "w") as f:
-            json.dump(post, f)
-
-        if h in cache and not force:
-            embeddings.append(cache[h])
-        else:
-            to_embed.append((h, post["content"]))
-            post_ids.append(i)
-
-    logger.info(
-        f"[Preprocess] {len(embeddings)} posts loaded from cache; {len(to_embed)} new posts to embed."
-    )
-
-    if to_embed:
-        embed_map = {}
-        with ThreadPoolExecutor(max_workers=8) as exe:
-            futures = {
-                exe.submit(embed_text, p_content): h for h, p_content in to_embed
-            }
-            for future in tqdm(
-                as_completed(futures), total=len(futures), desc="Embedding posts"
-            ):
-                h = futures[future]
-                try:
-                    emb = future.result()
-                    cache[h] = emb
-                    embed_map[h] = emb
-                except Exception as e:
-                    logger.error(f"[Preprocess] Embed error: {e}")
-
-        temp_embeddings = [None] * len(raw_posts)
-        for i in range(len(raw_posts)):
-            if i in post_ids:
-                h = to_embed[post_ids.index(i)][0]
-                if h in embed_map:
-                    temp_embeddings[i] = embed_map[h]
-                else:
-                    logger.warning(
-                        f"[Preprocess] No embedding returned for post index {i}"
-                    )
-            else:
-                h = post_hash(raw_posts[i])
-                if h in cache:
-                    temp_embeddings[i] = cache[h]
-                else:
-                    logger.warning(
-                        f"[Preprocess] No cached embedding for post index {i}"
-                    )
-
-        embeddings = [e for e in temp_embeddings if e is not None]
-
-    save_cache(cache)
-    logger.info(f"[Preprocess] Cache saved ({len(cache)} total embeddings).")
-
-    if not embeddings or not all(
-        isinstance(e, np.ndarray) and e.ndim == 1 and e.size > 0 for e in embeddings
-    ):
-        logger.warning(
-            f"[Preprocess] Invalid embeddings found. Total valid: {sum(e is not None and e.size > 0 for e in embeddings)}"
-        )
-        return
-
-    dim = embeddings[0].shape[0]
-    idx = hnswlib.Index(space="cosine", dim=dim)
-    idx.init_index(max_elements=len(embeddings), ef_construction=200, M=32)
-    idx.add_items(np.vstack(embeddings))
-    idx.set_ef(50)
-
-    idx.save_index(hnsw_path)
-    with open(meta_path, "wb") as f:
-        pickle.dump({"dim": dim, "count": len(embeddings)}, f)
-    logger.info(f"[Preprocess] HNSW index ({len(embeddings)} items, dim={dim}) saved.")
-
-
-def batch_llm_score_posts(query, posts):
-    """
-    Ask the LLM to rate each post’s relevance to the query in a single call.
-    Returns a list of (score, post) tuples.
-    """
-    prompt_lines = [
-        f"Question: {query}",
-        "",
-        "Rate the relevance of each post from 0 (not relevant) to 10 (very relevant).",
-        "Respond with only a numbered list of scores, like: 1. 7, 2. 4, ...",
-        "",
-        "Posts:",
-    ]
-
-    for idx, post in enumerate(posts, 1):
-        prompt_lines.append(f"{idx}. {post['content'].strip().replace('\n', ' ')}")
-
-    full_prompt = "\n".join(prompt_lines)
-
-    try:
-        resp = requests.post(
-            OLLAMA_API_URL,
-            json={"model": OLLAMA_MODEL, "prompt": full_prompt},
-            timeout=60,  # increased timeout
-        )
-        resp.raise_for_status()
-        text = resp.json().get("response", "")
-        scores = extract_scores_from_text(text, len(posts))
-
-        return [(score, post) for score, post in zip(scores, posts)]
-    except Exception as e:
-        logger.error(f"[Rerank] Error in batch LLM scoring: {e}")
-        return [(0, post) for post in posts]  # fallback: score 0
-
-
-def extract_scores_from_text(text, count):
-    """
-    Parses the numbered list of scores from LLM output.
-    Example expected: '1. 7\n2. 5\n...'
-    """
-    scores = []
-    for line in text.strip().splitlines():
-        match = re.match(r"\s*\d+\.\s*(\d+)", line)
-        if match:
-            scores.append(int(match.group(1)))
-    if len(scores) != count:
-        logger.warning(
-            f"[Rerank] Expected {count} scores, got {len(scores)}. Using defaults."
-        )
-        scores += [0] * (count - len(scores))
-    return scores
-
-
 def embed_text(text: str) -> np.ndarray:
-    """Embed text using OLLAMA embed API."""
     res = requests.post(
-        OLLAMA_EMBED_API_URL,
-        json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
+        OLLAMA_EMBED_API_URL, json={"model": OLLAMA_EMBED_MODEL, "prompt": text}
     )
     res.raise_for_status()
     return np.array(res.json()["embedding"], dtype="float32")
 
 
-def llm_score_post_relevance(query: str, post_content: str) -> float:
-    """
-    Use the LLM to score relevance of a single post to the query.
-    Returns a float score (higher = more relevant).
-    """
-    prompt = (
-        f"On a scale from 0 to 10, how relevant is the following forum post to the question?\n\n"
-        f"Question: {query}\n\n"
-        f"Post:\n{post_content}\n\n"
-        f"Respond ONLY with a numeric score from 0 to 10."
+# --- Core Preprocessing and Search Logic ---
+
+
+def preprocess_thread(thread_dir: str, force: bool = False) -> None:
+    meta_path, hnsw_path = (
+        os.path.join(thread_dir, INDEX_META_NAME),
+        os.path.join(thread_dir, HNSW_INDEX_NAME),
     )
+    posts_dir = os.path.join(thread_dir, "posts")
+
+    if not force and all(os.path.exists(p) for p in [meta_path, hnsw_path, posts_dir]):
+        logger.info(f"Index exists for {thread_dir}, skipping preprocessing.")
+        return
+
+    logger.info(f"Starting preprocessing for thread at {thread_dir}")
+    if force and os.path.exists(posts_dir):
+        shutil.rmtree(posts_dir)
+    os.makedirs(posts_dir, exist_ok=True)
+
+    html_files = sorted(
+        [f for f in os.listdir(thread_dir) if f.endswith(".html")],
+        key=lambda x: int(re.search(r"page(\d+)", x).group(1)),
+    )
+
+    raw_posts = []
+    for fn in html_files:
+        page_num = int(re.search(r"page(\d+)", fn).group(1))
+        with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
+            soup = BeautifulSoup(f, "html.parser")
+        base_url = extract_canonical_url(soup)
+        for el in soup.select("article.message"):
+            content = clean_post_content(extract_content(el))
+            if content:
+                raw_posts.append(
+                    {
+                        "page": page_num,
+                        "date": extract_date(el),
+                        "author": extract_author(el),
+                        "content": content,
+                        "url": extract_post_url(el, base_url),
+                    }
+                )
+
+    logger.info(f"Found {len(raw_posts)} posts to process.")
+    cache = load_cache()
+
+    to_embed_contents = [
+        post["content"] for post in raw_posts if post_hash(post["content"]) not in cache
+    ]
+    logger.info(
+        f"{len(raw_posts) - len(to_embed_contents)} posts found in cache. Embedding {len(to_embed_contents)} new posts."
+    )
+
+    if to_embed_contents:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            future_to_content = {
+                executor.submit(embed_text, content): content
+                for content in to_embed_contents
+            }
+            for future in tqdm(
+                as_completed(future_to_content),
+                total=len(to_embed_contents),
+                desc="Embedding",
+            ):
+                try:
+                    embedding = future.result()
+                    content = future_to_content[future]
+                    cache[post_hash(content)] = embedding
+                except Exception as e:
+                    logger.error(f"Embedding failed for a post: {e}")
+        save_cache(cache)
+
+    final_embeddings = []
+    for i, post in enumerate(raw_posts):
+        h = post_hash(post["content"])
+        if h in cache:
+            final_embeddings.append(cache[h])
+            with open(os.path.join(posts_dir, f"{i}.json"), "w") as f:
+                json.dump(post, f)
+
+    if not final_embeddings:
+        logger.error("No valid embeddings were generated. Aborting index creation.")
+        return
+
+    dim, num_elements = final_embeddings[0].shape[0], len(final_embeddings)
+    idx = hnswlib.Index(space="cosine", dim=dim)
+    idx.init_index(max_elements=num_elements, ef_construction=200, M=32)
+    idx.add_items(np.vstack(final_embeddings))
+    idx.save_index(hnsw_path)
+
+    with open(meta_path, "wb") as f:
+        pickle.dump({"dim": dim, "count": num_elements}, f)
+    logger.info(f"HNSW index with {num_elements} items saved successfully.")
+
+
+def batch_llm_score_posts(query: str, posts: List[Dict]) -> List[tuple[int, Dict]]:
+    prompt_lines = [
+        f"Query: {query}\nRate the relevance of each post below from 0 to 10. Respond ONLY with a numbered list of scores (e.g., '1. 7').\n"
+    ]
+    for i, post in enumerate(posts, 1):
+        prompt_lines.append(
+            f"{i}. Post by {post['author']}: {post['content'][:400]}..."
+        )
+
     try:
-        resp = requests.post(
+        res = requests.post(
+            OLLAMA_API_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": "\n".join(prompt_lines),
+                "stream": False,
+            },
+        )
+        res.raise_for_status()
+        text = res.json().get("response", "")
+        scores = [int(m.group(1)) for m in re.finditer(r"\d+\.\s*(\d+)", text)]
+        return (
+            list(zip(scores, posts))
+            if len(scores) == len(posts)
+            else [(0, p) for p in posts]
+        )
+    except Exception as e:
+        logger.error(f"LLM reranking failed: {e}")
+        return [(0, p) for p in posts]
+
+
+def generate_hypothetical_answer(query: str) -> str:
+    prompt = f"Write a detailed, hypothetical answer to the user's question. This will be used to find relevant documents.\n\nQuestion: {query}"
+    try:
+        res = requests.post(
             OLLAMA_API_URL,
             json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=10,
         )
-        resp.raise_for_status()
-        result_json = resp.json()
-        # The model's output may be in "response" or "text" field:
-        text = result_json.get("response") or result_json.get("text") or ""
-        # Extract numeric score using regex:
-        match = re.search(r"([0-9]+(\.[0-9]+)?)", text)
-        if match:
-            score = float(match.group(1))
-            score = max(0.0, min(score, 10.0))  # clamp to 0-10
-            return score
-        else:
-            logger.warning(f"LLM did not return a valid numeric score: '{text}'")
-            return 0.0
+        res.raise_for_status()
+        return res.json().get("response", query)
     except Exception as e:
-        logger.error(f"Error scoring post relevance: {e}")
-        return 0.0
+        logger.error(f"HyDE generation failed: {e}")
+        return query
 
 
-def find_relevant_posts(query, thread_dir, top_k=5):
-    posts_dir = os.path.join(thread_dir, "posts")
-    with open(os.path.join(thread_dir, "embeddings.json"), "r") as f:
-        embeddings = json.load(f)
+def find_relevant_posts(query: str, thread_dir: str, top_k: int = 5) -> List[Dict]:
+    meta_path, hnsw_path, posts_dir = [
+        os.path.join(thread_dir, name)
+        for name in [INDEX_META_NAME, HNSW_INDEX_NAME, "posts"]
+    ]
+    if not all(os.path.exists(p) for p in [meta_path, hnsw_path, posts_dir]):
+        return []
 
-    # Load index
-    idx = hnswlib.Index(space="cosine", dim=len(embeddings[0]["embedding"]))
-    idx.load_index(os.path.join(thread_dir, "index.bin"))
+    with open(meta_path, "rb") as f:
+        meta = pickle.load(f)
+    idx = hnswlib.Index(space="cosine", dim=meta["dim"])
+    idx.load_index(hnsw_path)
 
-    query_emb = embed_text(query)["embedding"]
-    labels, _ = idx.knn_query(query_emb, k=50)
+    hyde_query = generate_hypothetical_answer(query)
+    query_emb = embed_text(hyde_query)
+    candidate_labels, _ = idx.knn_query(query_emb, k=25)
 
     candidates = []
-    for i in labels[0]:
-        post_path = os.path.join(posts_dir, f"{i}.json")
-        with open(post_path) as f:
-            post = json.load(f)
-        candidates.append(post)
+    for i in candidate_labels[0]:
+        try:
+            with open(os.path.join(posts_dir, f"{i}.json"), "r") as f:
+                candidates.append(json.load(f))
+        except FileNotFoundError:
+            continue
 
-    logger.info(f"[Search] Retrieved {len(candidates)} candidates for reranking.")
+    scored_posts = batch_llm_score_posts(query, candidates)
+    scored_posts.sort(key=lambda x: x[0], reverse=True)
 
-    # Batch rerank
-    scored = batch_llm_score_posts(query, candidates)
-    scored.sort(key=lambda x: x[0], reverse=True)
+    final_posts = [post for score, post in scored_posts[:top_k]]
+    logger.info(
+        f"Retrieved {len(candidates)} candidates, returning top {len(final_posts)} after reranking."
+    )
+    return final_posts
 
-    return [p for s, p in scored[:top_k]]
+
+# --- Flask Routes ---
 
 
 @app.route("/")
@@ -466,68 +374,74 @@ def index():
 @app.route("/ask", methods=["POST"])
 def ask():
     data = request.get_json(force=True)
-    existing = data.get("existing_thread", "").strip()
-    url = data.get("url", "").strip()
     prompt = data.get("prompt", "").strip()
+    url = data.get("url", "").strip()
+    existing = data.get("existing_thread", "").strip()
     refresh = data.get("refresh", False)
 
-    if not prompt or (not existing and not url):
-        return "Prompt and thread key or URL required", 400
+    if not prompt or (not url and not existing):
+        return "Prompt and URL/existing thread are required.", 400
 
     thread_key = existing or normalize_url(url).rstrip("/").split("/")[-1].split(".")[0]
-    logger.info(f"Processing request for thread_key: '{thread_key}'")
+    logger.info(f"Processing request for thread: '{thread_key}'")
     thread_dir = get_thread_dir(thread_key)
 
-    htmls = [f for f in os.listdir(thread_dir) if f.endswith(".html")]
-    if url and (not htmls or refresh):
-        logger.info(
-            f"Fetching new HTML pages for '{thread_key}'. Refresh flag: {refresh}"
-        )
-        last = detect_last_page(url)
-        fetch_forum_pages(url, 1, last, save_dir=thread_dir)
-    else:
-        logger.info(f"Using existing HTML pages for '{thread_key}'.")
+    has_html = any(f.endswith(".html") for f in os.listdir(thread_dir))
+    if url and (not has_html or refresh):
+        logger.info(f"Fetching pages for '{thread_key}'. Refresh: {refresh}")
+        last_page = detect_last_page(url)
+        fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
 
     preprocess_thread(thread_dir, force=refresh)
-
     posts = find_relevant_posts(prompt, thread_dir)
-    if not posts:
-        context = (
-            "No relevant information was found in the thread to answer the question."
-        )
-    else:
-        context = "\n\n".join(
+
+    context = (
+        "\n\n".join(
             f"--- Post by {p['author']} on {p['date']} (Page {p['page']}) ---\nURL: {p['url']}\n\n{p['content']}"
             for p in posts
         )
+        if posts
+        else "No relevant information was found in the thread to answer the question."
+    )
 
-    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context is from a forum thread. If no context is relevant, respond that you cannot answer.
+    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context consists of several posts from a forum thread. If the answer cannot be found in the context, say so.
 
-Context:
+---CONTEXT---
 {context}
+---END CONTEXT---
 
-Question:
-{prompt}
+Question: {prompt}
 """
 
-    # Stream the LLM response
-    def generate():
-        payload = {
-            "model": OLLAMA_MODEL,
-            "prompt": system,
-            "stream": True,
-        }
-        with requests.post(
-            OLLAMA_API_URL, json=payload, stream=True, timeout=60
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if line:
-                    yield line.decode("utf-8") + "\n"
+    def stream_response():
+        try:
+            payload = {"model": OLLAMA_MODEL, "prompt": system, "stream": True}
+            with requests.post(OLLAMA_API_URL, json=payload, stream=True) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if line:
+                        chunk = json.loads(line)
+                        yield chunk.get("response", "")
+        except Exception as e:
+            logger.error(f"Error streaming from LLM: {e}")
+            yield "Error communicating with the language model."
 
-    return Response(generate(), mimetype="text/event-stream")
+    return Response(stream_response(), mimetype="text/plain")
+
+
+@app.route("/delete_thread", methods=["POST"])
+def delete_thread():
+    data = request.get_json(force=True)
+    key = data.get("thread_key", "").strip()
+    if not key or any(c in key for c in ("..", "/")):
+        return "Invalid thread key", 400
+    td = os.path.join(BASE_TMP_DIR, key)
+    if os.path.exists(td):
+        logger.info(f"Deleting thread directory: {td}")
+        shutil.rmtree(td)
+        return f"Deleted {key}", 200
+    return "Not found", 404
 
 
 if __name__ == "__main__":
-    os.makedirs(BASE_TMP_DIR, exist_ok=True)
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)
