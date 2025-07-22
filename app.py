@@ -304,13 +304,35 @@ def preprocess_thread(thread_dir: str, force: bool = False):
 def generate_hyde(query: str) -> str:
     prompt = f"Write a concise answer to help retrieve relevant forum posts.\n\nQuestion: {query}"
     try:
+        # http_post returns a Response
         r = http_post(
             OLLAMA_API_URL,
             {"model": OLLAMA_MODEL, "prompt": prompt},
             timeout=API_TIMEOUT,
         )
-        data = r.json()
-        return data.get("response", query)
+        text = r.text
+
+        # First try parsing whole body as JSON
+        try:
+            data = json.loads(text)
+            return data.get("response", query)
+        except Exception:
+            pass
+
+        # If that fails, look for the last line that is valid JSON
+        for line in text.splitlines()[::-1]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                return obj.get("response", query)
+            except Exception:
+                continue
+
+        # Fallback to entire body
+        return text.strip() or query
+
     except Exception as e:
         logger.warning(f"HyDE generation failed: {e}")
         return query
