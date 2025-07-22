@@ -53,9 +53,16 @@ def extract_author(post_element) -> str:
 
 
 def extract_content(post_element) -> str:
-    # Most accurate path to full content for XenForo forums
-    wrapper = post_element.select_one("div.bbWrapper")
-    return wrapper.get_text(separator="\n").strip() if wrapper else ""
+    for selector in [
+        "div.message-userContent .bbWrapper",
+        "div.bbWrapper",  # broader fallback
+        ".message-content .bbWrapper",
+        ".message-body .bbWrapper",
+    ]:
+        content_div = post_element.select_one(selector)
+        if content_div:
+            return content_div.get_text(separator="\n").strip()
+    return ""
 
 
 def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
@@ -66,10 +73,9 @@ def extract_post_url(post_element: BeautifulSoup, canonical_base: str) -> str:
         return urljoin(canonical_base, link["href"])
 
     # Fallback: use data-content="post-XXXXX"
-    data_content = post_element.get("data-content", "")
-    if data_content.startswith("post-"):
-        post_id = data_content.split("-")[1]
-        return urljoin(canonical_base, f"post-{post_id}/")
+    if post_element.get("data-content", "").startswith("post-"):
+        post_id = post_element["data-content"].split("-")[1]
+        return urljoin(canonical_base, f"posts/{post_id}/")
 
     return canonical_base + "#unknown"
 
@@ -253,7 +259,7 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                     }
                 )
             else:
-                logger.warning(f"Empty content on page {page}, skipping post.")
+                logger.warning(f"Empty or unparseable post at page {page}, skipping.")
 
     logger.info(f"[Preprocess] Found {len(raw_posts)} posts to embed.")
     cache = load_cache()
@@ -314,7 +320,7 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
         isinstance(e, np.ndarray) and e.ndim == 1 and e.size > 0 for e in embeddings
     ):
         logger.warning(
-            "[Preprocess] No valid embeddings found, aborting index creation."
+            f"[Preprocess] Invalid embeddings found. Total valid: {sum(e is not None and e.size > 0 for e in embeddings)}"
         )
         return
 
