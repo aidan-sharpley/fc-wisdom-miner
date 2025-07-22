@@ -322,7 +322,6 @@ def load_cache() -> Dict[str, np.ndarray]:
         try:
             with open(CACHE_PATH, "rb") as f:
                 cache = pickle.load(f)
-            logger.info(f"Loaded {len(cache)} cached embeddings")
             return cache
         except Exception as e:
             logger.warning(f"Embeddings cache corrupted ({e}); resetting.")
