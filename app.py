@@ -226,16 +226,21 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
         return
 
     logger.info(f"[Preprocess] Starting for thread at {thread_dir}")
-    if os.path.exists(posts_dir):
+    if os.path.exists(posts_dir) and force:
         shutil.rmtree(posts_dir)
     os.makedirs(posts_dir, exist_ok=True)
 
+    # CORRECTED LOGIC: First, filter for HTML files, then sort them.
+    all_files_in_dir = os.listdir(thread_dir)
+    html_files = [f for f in all_files_in_dir if f.endswith(".html")]
+    # Use a more specific regex to safely extract the page number for sorting
+    sorted_html_files = sorted(
+        html_files, key=lambda x: int(re.search(r"page(\d+)\.html", x).group(1))
+    )
+
     raw_posts = []
-    for fn in sorted(
-        os.listdir(thread_dir), key=lambda x: int(re.search(r"(\d+)", x).group())
-    ):
-        if not fn.endswith(".html"):
-            continue
+    # Now, loop through the correctly sorted list of HTML files
+    for fn in sorted_html_files:
         page = int(re.search(r"page(\d+)\.html", fn).group(1))
         with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
             soup = BeautifulSoup(f, "html.parser")
