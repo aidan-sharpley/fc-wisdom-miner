@@ -202,9 +202,8 @@ def preprocess_thread(thread_dir: str, force: bool = False):
     raw_posts, metadata = [], []
     for fn in htmls:
         page = int(re.search(r"page(\d+)", fn).group(1))
-        soup = BeautifulSoup(
-            open(os.path.join(thread_dir, fn), encoding="utf-8"), "html.parser"
-        )
+        with open(os.path.join(thread_dir, fn), encoding="utf-8") as f:
+            soup = BeautifulSoup(f, "html.parser")
         base = extract_canonical_url(soup)
         for el in soup.select("article.message"):
             content = clean_post_content(extract_content(el))
@@ -270,7 +269,6 @@ def generate_hyde(query: str) -> str:
             timeout=API_TIMEOUT,
         )
         r.raise_for_status()
-        # Attempt JSON parse, fallback to raw text
         try:
             return r.json().get("response", query)
         except ValueError:
@@ -283,7 +281,7 @@ def generate_hyde(query: str) -> str:
 def batch_rerank(query: str, posts: List[Dict]) -> List[Tuple[int, Dict]]:
     lines = [
         f"Question: {query}",
-        "Rate relevance of each post from 0-10, respond ONLY with numbered list:",
+        "Rate relevance of each post from 0-10; respond ONLY with numbered list:",
     ]
     for i, p in enumerate(posts, 1):
         snippet = p["content"][:300].replace("\n", " ")
@@ -296,8 +294,6 @@ def batch_rerank(query: str, posts: List[Dict]) -> List[Tuple[int, Dict]]:
             timeout=BATCH_RERANK_TIMEOUT,
         )
         r.raise_for_status()
-        # Fallback JSON/text handling
-        text = ""
         try:
             text = r.json().get("response", "")
         except ValueError:
@@ -382,7 +378,8 @@ def preprocess():
         return jsonify({"error": "thread_key or url required"}), 400
     thread_key = thread or normalize_url(url).rstrip("/").split("/")[-1]
     dir_ = get_thread_dir(thread_key)
-    if url and not any(f.endswith(".html") for f in os.listdir(dir_)):
+    htmls = [f for f in os.listdir(dir_) if f.endswith(".html")]
+    if url and (refresh or not htmls):
         last = detect_last_page(url)
         fetch_forum_pages(url, last, dir_)
     preprocess_thread(dir_, force=refresh)
@@ -402,7 +399,17 @@ def ask():
     thread_key = existing or normalize_url(url).rstrip("/").split("/")[-1]
     thread_dir = get_thread_dir(thread_key)
 
-    # Metadata-first shortcuts
+    htmls = [f for f in os.listdir(thread_dir) if f.endswith(".html")]
+    if url and (refresh or not htmls):
+        last = detect_last_page(url)
+        fetch_forum_pages(url, last, thread_dir)
+    elif not htmls:
+        return jsonify(
+            {"error": "No HTML pages found. Please run /preprocess first."}
+        ), 400
+
+    preprocess_thread(thread_dir, force=refresh)
+
     lower = prompt.lower()
     posts: List[Dict] = []
     if "first post" in lower:
@@ -415,9 +422,12 @@ def ask():
             count = pickle.load(open(os.path.join(thread_dir, INDEX_META_NAME), "rb"))[
                 "count"
             ]
-            posts = [
-                json.load(open(os.path.join(thread_dir, "posts", f"{count - 1}.json")))
-            ]
+            if count > 0:
+                posts = [
+                    json.load(
+                        open(os.path.join(thread_dir, "posts", f"{count - 1}.json"))
+                    )
+                ]
         except:
             posts = []
     else:
@@ -431,9 +441,13 @@ def ask():
         elif date_m:
             posts = find_posts_by_metadata(thread_dir, date=date_m.group(1))
 
-    # Fallback to semantic search
     if not posts:
-        posts = find_relevant_posts(prompt, thread_dir)
+        try:
+            posts = find_relevant_posts(prompt, thread_dir)
+        except FileNotFoundError:
+            return jsonify(
+                {"error": "Index missing after preprocessing. Retry or refresh."}
+            ), 500
 
     context = (
         "\n\n".join(
