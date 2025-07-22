@@ -235,10 +235,12 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     cache = load_cache()
 
     to_embed_contents = [
-        post["content"] for post in raw_posts if post_hash(post["content"]) not in cache
+        post["content"]
+        for post in raw_posts
+        if post_hash(post["content"]) not in cache or force
     ]
     logger.info(
-        f"{len(raw_posts) - len(to_embed_contents)} posts found in cache. Embedding {len(to_embed_contents)} new posts."
+        f"{len(raw_posts) - len(to_embed_contents)} posts found in cache. Embedding {len(to_embed_contents)} posts."
     )
 
     if to_embed_contents:
@@ -386,14 +388,40 @@ def ask():
     logger.info(f"Processing request for thread: '{thread_key}'")
     thread_dir = get_thread_dir(thread_key)
 
+    # --- Corrected Fetching and Preprocessing Logic ---
     has_html = any(f.endswith(".html") for f in os.listdir(thread_dir))
-    if url and (not has_html or refresh):
-        logger.info(f"Fetching pages for '{thread_key}'. Refresh: {refresh}")
+    if url and not has_html:
+        logger.info(f"No HTML found. Fetching pages for '{thread_key}'.")
         last_page = detect_last_page(url)
         fetch_forum_pages(url, 1, last_page, save_dir=thread_dir)
 
     preprocess_thread(thread_dir, force=refresh)
-    posts = find_relevant_posts(prompt, thread_dir)
+
+    # --- Hybrid Search: Intent Detection for Factual Questions ---
+    posts = []
+    prompt_lower = prompt.lower()
+    if any(s in prompt_lower for s in ["first post", "earliest post", "oldest post"]):
+        logger.info("Factual query detected: retrieving first post.")
+        try:
+            with open(os.path.join(thread_dir, "posts", "0.json"), "r") as f:
+                posts = [json.load(f)]
+        except FileNotFoundError:
+            logger.error("Could not find first post (0.json).")
+    elif any(s in prompt_lower for s in ["last post", "latest post", "newest post"]):
+        logger.info("Factual query detected: retrieving last post.")
+        try:
+            with open(os.path.join(thread_dir, INDEX_META_NAME), "rb") as f:
+                count = pickle.load(f).get("count", 0)
+            if count > 0:
+                with open(
+                    os.path.join(thread_dir, "posts", f"{count - 1}.json"), "r"
+                ) as f:
+                    posts = [json.load(f)]
+        except FileNotFoundError:
+            logger.error("Could not find last post.")
+
+    if not posts:  # If no special intent was detected, or if factual retrieval failed
+        posts = find_relevant_posts(prompt, thread_dir)
 
     context = (
         "\n\n".join(
@@ -404,7 +432,7 @@ def ask():
         else "No relevant information was found in the thread to answer the question."
     )
 
-    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context consists of several posts from a forum thread. If the answer cannot be found in the context, say so.
+    system = f"""You are an expert forum analyst. Use *only* the provided context below to answer the question. The context consists of one or more posts from a forum thread. If the answer cannot be found in the context, say so.
 
 ---CONTEXT---
 {context}
