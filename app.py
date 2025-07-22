@@ -7,7 +7,9 @@ import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 import hnswlib
 import numpy as np
@@ -831,6 +833,427 @@ def find_posts_by_metadata(
     return posts
 
 
+class QueryType(Enum):
+    SPECIFIC_POST = "specific_post"  # "second post", "first post"
+    AUTHOR_SEARCH = "author_search"  # "posts by user"
+    TEMPORAL_SEARCH = "temporal_search"  # "posts from yesterday"
+    CONTENT_SEARCH = "content_search"  # semantic content search
+    METADATA_SEARCH = "metadata_search"  # page, date, etc.
+    COMPARATIVE = "comparative"  # "compare X and Y"
+    SUMMARY = "summary"  # "summarize the thread"
+
+
+@dataclass
+class QueryIntent:
+    """Structured representation of user query intent"""
+
+    query_type: QueryType
+    target: Optional[str] = None  # "second", "first", username, etc.
+    filters: Dict[str, Any] = None  # page, date, author filters
+    semantic_query: Optional[str] = None  # refined query for semantic search
+    confidence: float = 0.0
+
+    def __post_init__(self):
+        if self.filters is None:
+            self.filters = {}
+
+
+class IntelligentQueryProcessor:
+    """Advanced query processor that understands natural language intent"""
+
+    def __init__(self):
+        # Ordinal patterns
+        self.ordinal_patterns = {
+            r"\b(first|1st)\b": 1,
+            r"\b(second|2nd)\b": 2,
+            r"\b(third|3rd)\b": 3,
+            r"\b(fourth|4th)\b": 4,
+            r"\b(fifth|5th)\b": 5,
+            r"\b(sixth|6th)\b": 6,
+            r"\b(seventh|7th)\b": 7,
+            r"\b(eighth|8th)\b": 8,
+            r"\b(ninth|9th)\b": 9,
+            r"\b(tenth|10th)\b": 10,
+            r"\b(last|final)\b": -1,
+            r"\b(latest|most recent)\b": -1,
+        }
+
+        # Time patterns
+        self.time_patterns = {
+            r"\b(today|this morning|this afternoon|this evening)\b": "today",
+            r"\b(yesterday|last night)\b": "yesterday",
+            r"\b(this week|past week)\b": "week",
+            r"\b(this month|past month)\b": "month",
+            r"\b(january|jan)\b": "january",
+            r"\b(february|feb)\b": "february",
+            r"\b(march|mar)\b": "march",
+            r"\b(april|apr)\b": "april",
+            r"\b(may)\b": "may",
+            r"\b(june|jun)\b": "june",
+            r"\b(july|jul)\b": "july",
+            r"\b(august|aug)\b": "august",
+            r"\b(september|sep|sept)\b": "september",
+            r"\b(october|oct)\b": "october",
+            r"\b(november|nov)\b": "november",
+            r"\b(december|dec)\b": "december",
+            r"\b(20\d{2})\b": "year",
+        }
+
+        # Author patterns
+        self.author_patterns = [
+            r"\bposts?\s+by\s+([^\s,\.]+)",
+            r"\b([^\s,\.]+)\s+(?:said|wrote|posted)",
+            r"\bauthor:?\s*([^\s,\.]+)",
+            r"\buser:?\s*([^\s,\.]+)",
+            r"\bfrom\s+([^\s,\.]+)",
+        ]
+
+    def analyze_query(self, query: str) -> QueryIntent:
+        """Analyze query and determine intent with structured extraction"""
+        query_lower = query.lower().strip()
+
+        # Try specific post patterns first
+        post_intent = self._detect_specific_post(query_lower)
+        if post_intent.confidence > 0.7:
+            return post_intent
+
+        # Try author search
+        author_intent = self._detect_author_search(query_lower)
+        if author_intent.confidence > 0.6:
+            return author_intent
+
+        # Try temporal search
+        temporal_intent = self._detect_temporal_search(query_lower)
+        if temporal_intent.confidence > 0.6:
+            return temporal_intent
+
+        # Try metadata search
+        metadata_intent = self._detect_metadata_search(query_lower)
+        if metadata_intent.confidence > 0.5:
+            return metadata_intent
+
+        # Check for summary request
+        if any(
+            word in query_lower for word in ["summary", "summarize", "overview", "tldr"]
+        ):
+            return QueryIntent(
+                query_type=QueryType.SUMMARY, semantic_query=query, confidence=0.8
+            )
+
+        # Default to semantic content search
+        return QueryIntent(
+            query_type=QueryType.CONTENT_SEARCH, semantic_query=query, confidence=0.3
+        )
+
+    def _detect_specific_post(self, query: str) -> QueryIntent:
+        """Detect requests for specific posts (first, second, last, etc.)"""
+        confidence = 0.0
+        target_position = None
+
+        # Look for ordinal indicators
+        for pattern, position in self.ordinal_patterns.items():
+            if re.search(pattern, query, re.IGNORECASE):
+                target_position = position
+                confidence = 0.9
+                break
+
+        # Look for "Nth post" patterns
+        if not target_position:
+            match = re.search(r"\b(\d+)(?:st|nd|rd|th)?\s+post", query)
+            if match:
+                target_position = int(match.group(1))
+                confidence = 0.8
+
+        # Check for post-related keywords to boost confidence
+        post_keywords = ["post", "message", "reply", "comment"]
+        if any(keyword in query for keyword in post_keywords):
+            confidence += 0.1
+
+        # Extract additional context
+        filters = {}
+        page_match = re.search(r"(?:on|from|in)\s+page\s+(\d+)", query)
+        if page_match:
+            filters["page"] = int(page_match.group(1))
+            confidence += 0.1
+
+        return QueryIntent(
+            query_type=QueryType.SPECIFIC_POST,
+            target=str(target_position) if target_position else None,
+            filters=filters,
+            confidence=confidence,
+        )
+
+    def _detect_author_search(self, query: str) -> QueryIntent:
+        """Detect requests for posts by specific authors"""
+        confidence = 0.0
+        author = None
+
+        for pattern in self.author_patterns:
+            match = re.search(pattern, query, re.IGNORECASE)
+            if match:
+                author = match.group(1).strip()
+                confidence = 0.8
+                break
+
+        # Look for @ mentions
+        if not author:
+            match = re.search(r"@([^\s,\.]+)", query)
+            if match:
+                author = match.group(1)
+                confidence = 0.7
+
+        return QueryIntent(
+            query_type=QueryType.AUTHOR_SEARCH, target=author, confidence=confidence
+        )
+
+    def _detect_temporal_search(self, query: str) -> QueryIntent:
+        """Detect time-based search requests"""
+        confidence = 0.0
+        time_filter = None
+
+        for pattern, time_ref in self.time_patterns.items():
+            if re.search(pattern, query, re.IGNORECASE):
+                time_filter = time_ref
+                confidence = 0.7
+                break
+
+        # Look for specific dates
+        date_match = re.search(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", query)
+        if date_match:
+            time_filter = date_match.group(1)
+            confidence = 0.9
+
+        return QueryIntent(
+            query_type=QueryType.TEMPORAL_SEARCH,
+            filters={"date": time_filter} if time_filter else {},
+            semantic_query=query,
+            confidence=confidence,
+        )
+
+    def _detect_metadata_search(self, query: str) -> QueryIntent:
+        """Detect metadata-based searches (page, thread info, etc.)"""
+        confidence = 0.0
+        filters = {}
+
+        # Page search
+        page_match = re.search(r"(?:on|from|in)\s+page\s+(\d+)", query)
+        if page_match:
+            filters["page"] = int(page_match.group(1))
+            confidence = 0.6
+
+        # Thread structure questions
+        if any(
+            phrase in query
+            for phrase in ["how many posts", "post count", "thread length"]
+        ):
+            confidence = 0.8
+
+        return QueryIntent(
+            query_type=QueryType.METADATA_SEARCH,
+            filters=filters,
+            semantic_query=query,
+            confidence=confidence,
+        )
+
+
+def create_enhanced_system_prompt(intent: QueryIntent, context: str) -> str:
+    """Create a more targeted system prompt based on query intent"""
+
+    base_instructions = (
+        "You are an expert forum analyst. Analyze the provided forum posts and answer the user's question accurately. "
+        "Use ONLY the information from the provided posts. Be specific and cite relevant details.\n\n"
+    )
+
+    if intent.query_type == QueryType.SPECIFIC_POST:
+        if intent.target:
+            position = intent.target
+            if position == "-1":
+                specific_instruction = (
+                    "The user is asking about the LAST post in the thread. "
+                    "Find the chronologically last post and provide its details (date, author, content summary).\n"
+                )
+            else:
+                specific_instruction = (
+                    f"The user is asking about the {position} post in chronological order. "
+                    f"Count the posts from the beginning and identify post #{position}. "
+                    "Provide the date, author, and relevant details for that specific post.\n"
+                )
+        else:
+            specific_instruction = (
+                "The user is asking about a specific post position. "
+                "Analyze the posts carefully to identify which one they're referring to.\n"
+            )
+
+    elif intent.query_type == QueryType.AUTHOR_SEARCH:
+        specific_instruction = (
+            f"Focus on posts by author '{intent.target}'. "
+            "List their posts chronologically with dates and key points.\n"
+        )
+
+    elif intent.query_type == QueryType.TEMPORAL_SEARCH:
+        specific_instruction = (
+            "Focus on the temporal aspect of the query. "
+            "Pay attention to post dates and chronological order.\n"
+        )
+
+    elif intent.query_type == QueryType.SUMMARY:
+        specific_instruction = (
+            "Provide a comprehensive summary of the thread. "
+            "Include key points, main participants, and the evolution of the discussion.\n"
+        )
+
+    else:
+        specific_instruction = (
+            "Use semantic understanding to find the most relevant information. "
+            "Consider the context and intent behind the user's question.\n"
+        )
+
+    return f"{base_instructions}{specific_instruction}---FORUM CONTEXT---\n{context}\n---END CONTEXT---"
+
+
+def enhanced_post_retrieval(
+    intent: QueryIntent, thread_dir: str, metadata: List[Dict]
+) -> List[Dict]:
+    """Enhanced post retrieval based on query intent"""
+
+    if intent.query_type == QueryType.SPECIFIC_POST and intent.target:
+        return retrieve_specific_post(intent, thread_dir, metadata)
+
+    elif intent.query_type == QueryType.AUTHOR_SEARCH and intent.target:
+        return retrieve_posts_by_author(intent.target, thread_dir, metadata)
+
+    elif intent.query_type == QueryType.TEMPORAL_SEARCH:
+        return retrieve_posts_by_time(intent, thread_dir, metadata)
+
+    elif intent.query_type == QueryType.METADATA_SEARCH:
+        return retrieve_posts_by_metadata(intent, thread_dir, metadata)
+
+    # For content search, we'll still use the existing semantic search
+    return []
+
+
+def retrieve_specific_post(
+    intent: QueryIntent, thread_dir: str, metadata: List[Dict]
+) -> List[Dict]:
+    """Retrieve a specific post by position"""
+    try:
+        position = int(intent.target)
+
+        # Handle negative indexing (last post)
+        if position == -1:
+            position = len(metadata)
+
+        # Convert to 0-based index
+        index = position - 1
+
+        if 0 <= index < len(metadata):
+            post_path = os.path.join(thread_dir, "posts", f"{index}.json")
+            if os.path.exists(post_path):
+                with open(post_path, "r", encoding="utf-8") as f:
+                    post = json.load(f)
+                return [post]
+
+    except (ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"Error retrieving specific post: {e}")
+
+    return []
+
+
+def retrieve_posts_by_author(
+    author: str, thread_dir: str, metadata: List[Dict]
+) -> List[Dict]:
+    """Retrieve posts by specific author"""
+    posts = []
+
+    for i, meta in enumerate(metadata):
+        if author.lower() in meta.get("author", "").lower():
+            post_path = os.path.join(thread_dir, "posts", f"{i}.json")
+            try:
+                with open(post_path, "r", encoding="utf-8") as f:
+                    post = json.load(f)
+                posts.append(post)
+            except (FileNotFoundError, json.JSONDecodeError):
+                continue
+
+    return posts[:10]  # Limit results
+
+
+def retrieve_posts_by_time(
+    intent: QueryIntent, thread_dir: str, metadata: List[Dict]
+) -> List[Dict]:
+    """Retrieve posts by time criteria"""
+    time_filter = intent.filters.get("date", "")
+    posts = []
+
+    for i, meta in enumerate(metadata):
+        post_date = meta.get("date", "").lower()
+        if time_filter.lower() in post_date:
+            post_path = os.path.join(thread_dir, "posts", f"{i}.json")
+            try:
+                with open(post_path, "r", encoding="utf-8") as f:
+                    post = json.load(f)
+                posts.append(post)
+            except (FileNotFoundError, json.JSONDecodeError):
+                continue
+
+    return posts[:10]
+
+
+def retrieve_posts_by_metadata(
+    intent: QueryIntent, thread_dir: str, metadata: List[Dict]
+) -> List[Dict]:
+    """Retrieve posts by metadata filters"""
+    posts = []
+
+    for i, meta in enumerate(metadata):
+        match = True
+
+        for filter_key, filter_value in intent.filters.items():
+            if filter_key == "page" and meta.get("page") != filter_value:
+                match = False
+                break
+
+        if match:
+            post_path = os.path.join(thread_dir, "posts", f"{i}.json")
+            try:
+                with open(post_path, "r", encoding="utf-8") as f:
+                    post = json.load(f)
+                posts.append(post)
+            except (FileNotFoundError, json.JSONDecodeError):
+                continue
+
+    return posts[:15]
+
+
+# Example usage integration
+def process_intelligent_query(
+    query: str, thread_dir: str
+) -> Tuple[QueryIntent, List[Dict]]:
+    """Main function to process a query intelligently"""
+
+    # Initialize processor
+    processor = IntelligentQueryProcessor()
+
+    # Analyze the query
+    intent = processor.analyze_query(query)
+    logger.info(
+        f"Query intent: {intent.query_type.value}, confidence: {intent.confidence}"
+    )
+
+    # Load metadata
+    metadata_path = os.path.join(thread_dir, "metadata_index.json")
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        metadata = []
+
+    # Retrieve posts based on intent
+    posts = enhanced_post_retrieval(intent, thread_dir, metadata)
+
+    return intent, posts
+
+
 def find_relevant_posts(
     query: str, thread_dir: str, top_k: int = FINAL_TOP_K
 ) -> List[Dict]:
@@ -972,7 +1395,7 @@ def preprocess_route():
 
 @app.route("/ask", methods=["POST"])
 def ask_route():
-    """Ask a question about a forum thread."""
+    """Ask a question about a forum thread with intelligent query processing."""
     try:
         data = request.get_json(force=True) or {}
         prompt = data.get("prompt", "").strip()
@@ -1005,64 +1428,23 @@ def ask_route():
 
         preprocess_thread(thread_dir, force=refresh)
 
-        # Parse query for special requests
-        prompt_lower = prompt.lower()
-        posts = []
+        # Use intelligent query processing
+        intent, posts = process_intelligent_query(prompt, thread_dir)
 
-        if "first post" in prompt_lower or "original post" in prompt_lower:
-            logger.info("User requested first post")
-            try:
-                with open(
-                    os.path.join(thread_dir, "posts", "0.json"), "r", encoding="utf-8"
-                ) as f:
-                    posts = [json.load(f)]
-            except Exception as e:
-                logger.warning(f"Could not load first post: {e}")
+        logger.info(
+            f"Query intent: {intent.query_type.value} (confidence: {intent.confidence:.2f})"
+        )
 
-        elif "last post" in prompt_lower or "latest post" in prompt_lower:
-            logger.info("User requested last post")
-            try:
-                meta_path = os.path.join(thread_dir, INDEX_META_NAME)
-                with open(meta_path, "rb") as f:
-                    meta = pickle.load(f)
-                count = meta.get("count", 0)
-                if count > 0:
-                    with open(
-                        os.path.join(thread_dir, "posts", f"{count - 1}.json"),
-                        "r",
-                        encoding="utf-8",
-                    ) as f:
-                        posts = [json.load(f)]
-            except Exception as e:
-                logger.warning(f"Could not load last post: {e}")
+        # If intelligent retrieval found specific posts, use them
+        if posts:
+            logger.info(f"Using {len(posts)} posts from intelligent retrieval")
         else:
-            # Check for metadata-based queries
-            author_match = re.search(r"posts? by\s+([\w\-_]+)", prompt_lower)
-            page_match = re.search(r"(?:on|from)\s+page\s+(\d+)", prompt_lower)
-            date_match = re.search(
-                r"(?:from|on|posted)\s+(.+?(?:20\d{2}|january|february|march|april|may|june|july|august|september|october|november|december))",
-                prompt_lower,
-            )
+            # Fallback to semantic search
+            logger.info("Falling back to semantic search")
 
-            if author_match:
-                author = author_match.group(1)
-                logger.info(f"Searching for posts by author: {author}")
-                posts = find_posts_by_metadata(thread_dir, author=author)
-
-            elif page_match:
-                page_num = int(page_match.group(1))
-                logger.info(f"Searching for posts on page: {page_num}")
-                posts = find_posts_by_metadata(thread_dir, page=page_num)
-
-            elif date_match:
-                date_str = date_match.group(1).strip()
-                logger.info(f"Searching for posts from date: {date_str}")
-                posts = find_posts_by_metadata(thread_dir, date=date_str)
-
-        # If no specific posts found, do semantic search
-        if not posts:
-            logger.info("Performing semantic search")
-            posts = find_relevant_posts(prompt, thread_dir)
+            # Use the refined semantic query if available
+            search_query = intent.semantic_query or prompt
+            posts = find_relevant_posts(search_query, thread_dir)
 
         # Build context from posts
         if posts:
@@ -1079,26 +1461,16 @@ def ask_route():
             context = "No relevant information found in the forum thread."
             logger.warning("No posts found for query")
 
-        # Create system prompt for LLM
-        system_prompt = (
-            "You are an expert forum analyst with deep knowledge of technical discussions. "
-            "Your task is to provide comprehensive, accurate answers based strictly on the forum posts provided below.\n\n"
-            "Guidelines:\n"
-            "- Use ONLY the information from the provided forum posts\n"
-            "- Be specific and cite relevant details from posts\n"
-            "- If you see evolution of ideas across posts, explain the progression\n"
-            "- Include specific techniques, methods, or recommendations mentioned\n"
-            "- If information is incomplete, say so rather than guessing\n"
-            "- Quote relevant parts when helpful\n\n"
-            f"---FORUM CONTEXT---\n{context}\n---END CONTEXT---\n\n"
-            f"User Question: {prompt}\n\n"
-            "Please provide a detailed answer based on the forum posts above:"
+        # Create enhanced system prompt based on intent
+        system_prompt = create_enhanced_system_prompt(intent, context)
+        system_prompt += (
+            f"\n\nUser Question: {prompt}\n\nPlease provide a detailed answer:"
         )
 
         def generate_response():
-            """Stream LLM response."""
+            """Stream LLM response with enhanced context."""
             try:
-                logger.info("Starting LLM response generation")
+                logger.info("Starting enhanced LLM response generation")
                 response = requests.post(
                     OLLAMA_API_URL,
                     json={
@@ -1106,7 +1478,7 @@ def ask_route():
                         "prompt": system_prompt,
                         "stream": True,
                         "options": {
-                            "temperature": 0.3,
+                            "temperature": 0.2,  # Lower temperature for more precise answers
                             "top_p": 0.9,
                             "max_tokens": 2000,
                         },
@@ -1133,7 +1505,7 @@ def ask_route():
         return Response(generate_response(), mimetype="text/plain")
 
     except Exception as e:
-        logger.error(f"Error in ask route: {e}")
+        logger.error(f"Error in enhanced ask route: {e}")
         return f"Error: {str(e)}", 500
 
 
