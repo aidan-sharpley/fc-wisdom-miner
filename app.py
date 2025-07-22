@@ -49,8 +49,12 @@ def extract_date(post_element) -> str:
 
 
 def extract_content(post_element) -> str:
-    # Pulls post content from XenForo bbWrapper
-    content_div = post_element.select_one(".message-main .bbWrapper")
+    # Pulls post content from XenForo bbWrapper.
+    # Using a more specific selector to start, which is more robust.
+    content_div = post_element.select_one("div.message-userContent .bbWrapper")
+    if not content_div:
+        # Fallback to the original, broader selector if the specific one fails
+        content_div = post_element.select_one(".message-main .bbWrapper")
     return content_div.get_text(separator="\n").strip() if content_div else ""
 
 
@@ -189,8 +193,14 @@ def clean_post_content(raw: str) -> str:
 
 def load_cache() -> Dict[str, np.ndarray]:
     if os.path.exists(CACHE_PATH):
-        with open(CACHE_PATH, "rb") as f:
-            return pickle.load(f)
+        try:
+            with open(CACHE_PATH, "rb") as f:
+                return pickle.load(f)
+        except (EOFError, pickle.UnpicklingError):
+            logger.warning(
+                f"Cache file at {CACHE_PATH} is corrupted. Starting a new cache."
+            )
+            return {}
     return {}
 
 
@@ -217,7 +227,7 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
     hnsw_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
 
     if not force and os.path.exists(meta_path) and os.path.exists(hnsw_path):
-        logger.info(f"[Preprocess] Index already exists for {thread_dir}, skipping.")
+        logger.info(f"[Preprocess] Index exists for {thread_dir}, skipping.")
         return
 
     logger.info(f"[Preprocess] Starting for thread at {thread_dir}")
@@ -243,6 +253,7 @@ def preprocess_thread(thread_dir: str, force: bool = False) -> None:
                         "page": page,
                         "date": extract_date(el),
                         "content": clean_post_content(content),
+                        # CORRECTED: Use the 'base_thread_url' variable, not 'soup.base_thread_url'
                         "url": extract_post_url(el, base_thread_url),
                     }
                 )
