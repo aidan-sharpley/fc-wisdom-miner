@@ -203,9 +203,12 @@ def embed_text(text: str) -> np.ndarray:
     h = post_hash(text)
     if h in cache:
         return cache[h]
+
+    # Break into chunks, but ensure at least one chunk exists
     chunks = chunk_text(text)
     if not chunks:
         chunks = [text]
+
     vectors = []
     for chunk in chunks:
         r = http_post(
@@ -215,6 +218,8 @@ def embed_text(text: str) -> np.ndarray:
         )
         emb = np.array(r.json().get("embedding", []), dtype="float32")
         vectors.append(emb)
+
+    # Now vectors is guaranteed non‐empty
     vec = np.mean(vectors, axis=0)
     cache[h] = vec
     save_cache(cache)
@@ -306,7 +311,7 @@ def preprocess_thread(thread_dir: str, force: bool = False):
 def generate_hyde(query: str) -> str:
     prompt = f"Write a concise answer to help retrieve relevant forum posts.\n\nQuestion: {query}"
     try:
-        # http_post returns a Response
+        # Use http_post to respect retries
         r = http_post(
             OLLAMA_API_URL,
             {"model": OLLAMA_MODEL, "prompt": prompt},
@@ -314,15 +319,15 @@ def generate_hyde(query: str) -> str:
         )
         text = r.text
 
-        # First try parsing whole body as JSON
+        # Try full‐body JSON
         try:
             data = json.loads(text)
             return data.get("response", query)
         except Exception:
             pass
 
-        # If that fails, look for the last line that is valid JSON
-        for line in text.splitlines()[::-1]:
+        # Otherwise, scan lines backwards for a JSON object
+        for line in reversed(text.splitlines()):
             line = line.strip()
             if not line:
                 continue
@@ -332,7 +337,7 @@ def generate_hyde(query: str) -> str:
             except Exception:
                 continue
 
-        # Fallback to entire body
+        # Fallback to raw text
         return text.strip() or query
 
     except Exception as e:
@@ -399,14 +404,37 @@ def find_posts_by_metadata(
 def find_relevant_posts(
     query: str, thread_dir: str, top_k: int = FINAL_TOP_K
 ) -> List[Dict]:
-    meta = pickle.load(open(os.path.join(thread_dir, INDEX_META_NAME), "rb"))
-    idx = hnswlib.Index(space="cosine", dim=meta["dim"])
-    idx.load_index(os.path.join(thread_dir, HNSW_INDEX_NAME))
+    # Load index metadata and bail out early if empty or missing
+    meta_path = os.path.join(thread_dir, INDEX_META_NAME)
+    index_path = os.path.join(thread_dir, HNSW_INDEX_NAME)
+    if not os.path.exists(meta_path) or not os.path.exists(index_path):
+        logger.warning("Index metadata or HNSW index file missing")
+        return []
 
+    meta = pickle.load(open(meta_path, "rb"))
+    count = meta.get("count", 0)
+    dim = meta.get("dim", 0)
+    if count == 0 or dim == 0:
+        logger.warning("HNSW index is empty or invalid")
+        return []
+
+    # Initialize and load the HNSW index
+    idx = hnswlib.Index(space="cosine", dim=dim)
+    idx.load_index(index_path)
+
+    # Expand the query with HyDE
     hyde_q = generate_hyde(query)
     q_emb = embed_text(hyde_q)
-    labels, _ = idx.knn_query(q_emb, k=QUERY_RERANK_SIZE)
 
+    # Guard: embedding dimensionality must match index
+    if q_emb.ndim != 1 or q_emb.size != dim:
+        logger.warning(f"Query embedding dim {q_emb.size} != index dim {dim}")
+        return []
+
+    # Perform the kNN search
+    labels, _ = idx.knn_query(q_emb, k=min(QUERY_RERANK_SIZE, count))
+
+    # Load candidate posts
     posts_dir = os.path.join(thread_dir, "posts")
     candidates = []
     for i in labels[0]:
@@ -414,8 +442,11 @@ def find_relevant_posts(
         if os.path.exists(path):
             candidates.append(json.load(open(path)))
 
+    # Rerank via LLM
     scored = batch_rerank(query, candidates)
     scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Return top-k posts
     final = [p for _, p in scored[:top_k]]
     logger.info(f"Selected {len(final)} posts after rerank.")
     return final
