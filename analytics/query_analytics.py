@@ -32,7 +32,21 @@ class ConversationalQueryProcessor:
             'recommendations': ['recommend', 'suggest', 'advice', 'should', 'best'],
             'experience': ['experience', 'story', 'happened', 'encounter', 'went through'],
             'outcome': ['outcome', 'result', 'what happened', 'end result', 'final'],
-            'learning': ['learn', 'lesson', 'takeaway', 'discovery', 'realize']
+            'learning': ['learn', 'lesson', 'takeaway', 'discovery', 'realize'],
+            'engagement': ['highest rated', 'most rated', 'top rated', 'best rated', 'most popular', 
+                          'most upvoted', 'highest scoring', 'best post', 'top post', 'popular post',
+                          'most liked', 'most reactions', 'most engaged', 'top engagement', 
+                          'well received', 'community favorite', 'highly rated']
+        }
+        
+        # Smart query expansion patterns for vague queries
+        self.expansion_patterns = {
+            'rated': 'highest rated most popular best post community engagement upvotes reactions',
+            'popular': 'most popular highest rated best post community favorite well received',
+            'best': 'best post highest rated most popular top engagement community favorite',
+            'top': 'top post highest rated most popular best engagement community favorite',
+            'good': 'good post well received highly rated popular community favorite',
+            'post': 'specific post content author engagement rating community response'
         }
         
         # Vague query indicators
@@ -206,8 +220,31 @@ class ConversationalQueryProcessor:
         return analysis
     
     def _expand_query(self, original_query: str, analysis: Dict, thread_analytics: Optional[Dict]) -> str:
-        """Expand the original query for better search results."""
+        """Expand the original query for better search results with smart enhancement."""
+        query_lower = original_query.lower()
         expanded_parts = [original_query]
+        
+        # Smart expansion for vague engagement queries
+        expansion_applied = False
+        for key, expansion in self.expansion_patterns.items():
+            if key in query_lower and not expansion_applied:
+                logger.info(f"Auto-expanding vague query '{original_query}' with engagement terms")
+                expanded_parts.append(expansion)
+                expansion_applied = True
+                break
+        
+        # Detect and enhance vague queries automatically
+        if analysis['is_vague'] and not expansion_applied:
+            # If it's a very short query, try to make it more specific
+            if len(query_lower.split()) <= 2:
+                if any(term in query_lower for term in ['rated', 'rating', 'score']):
+                    expanded_parts.append('highest rated most popular best post community engagement')
+                elif any(term in query_lower for term in ['best', 'good', 'great']):
+                    expanded_parts.append('best post highest rated most popular community favorite')
+                elif any(term in query_lower for term in ['popular', 'liked']):
+                    expanded_parts.append('most popular highest rated best post well received')
+                elif any(term in query_lower for term in ['post', 'comment']):
+                    expanded_parts.append('specific post content author engagement rating community response')
         
         # Add analytical intent terms
         if analysis['analytical_intent']:
@@ -233,7 +270,13 @@ class ConversationalQueryProcessor:
                 unique_parts.append(part)
                 seen.add(part.lower())
         
-        return ' '.join(unique_parts)
+        expanded_query = ' '.join(unique_parts)
+        
+        # Log the expansion for debugging
+        if expanded_query != original_query:
+            logger.info(f"Query expanded from '{original_query}' to '{expanded_query}'")
+        
+        return expanded_query
     
     def generate_analytical_prompt(self, query: str, analysis: Dict, context: str) -> str:
         """Generate an enhanced prompt for analytical queries.

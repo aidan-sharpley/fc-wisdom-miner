@@ -117,11 +117,14 @@ tmp/
 
 ## Key Features and M1 Optimizations
 
-### 🎯 **Query Accuracy Revolution**
+### 🎯 **Query Accuracy Revolution & Smart Interpretation**
 - **Analytical Queries**: "Who is most active?" → Analyzes ALL posts, returns exact counts
 - **Positional Queries**: "Who was the second user to post?" → Chronological analysis with post links
 - **Semantic Queries**: "What heating techniques work best?" → Vector search + LLM
 - **Smart Detection**: Automatically routes queries to appropriate processor
+- **Vague Query Enhancement**: "highest rated" → Auto-expanded with engagement terms for better results
+- **Conversational Understanding**: System explains its interpretation for ambiguous queries
+- **Auto-Routing**: Vague queries like "best" automatically routed to engagement analysis
 - **100% Accurate**: Data-driven answers for statistical questions
 
 ### 🚀 **M1 Performance & Memory Optimization**

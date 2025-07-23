@@ -61,9 +61,14 @@ class QueryProcessor:
         logger.info(f"Processing query: '{query[:50]}...'")
         
         try:
-            # Step 1: Analyze the query
+            # Step 1: Analyze the query with smart enhancement
             query_analysis = self.query_analyzer.analyze_conversational_query(query)
             analytical_intent = query_analysis.get('analytical_intent', [])
+            
+            # Check if query was auto-expanded and log it
+            expanded_query = query_analysis.get('expanded_query', query)
+            if expanded_query != query:
+                logger.info(f"Query auto-enhanced from '{query}' to '{expanded_query}' for better results")
             
             # Step 2: Check if this can be handled with direct data analysis
             if self.data_analyzer.can_handle_query(query, analytical_intent):
@@ -541,15 +546,21 @@ class QueryProcessor:
         return ''.join(response_parts)
     
     def _format_engagement_analysis(self, result: Dict) -> str:
-        """Format engagement analysis results."""
+        """Format engagement analysis results with smart query interpretation."""
         if 'error' in result:
             return f"**Analysis Error:**\n\n{result['error']}\n\nTotal posts analyzed: {result.get('total_posts_analyzed', 0)}"
         
         metric_name = result.get('metric_name', 'engagement')
         top_post = result.get('top_post', {})
         top_5_posts = result.get('top_5_posts', [])
+        original_query = result.get('query', '')
         
         response_parts = []
+        
+        # Add smart interpretation note for vague queries
+        if len(original_query.split()) <= 3 and any(term in original_query.lower() for term in ['rated', 'best', 'good', 'popular']):
+            response_parts.append(f"💡 **Smart Interpretation:** I understood '{original_query}' as a request for the {metric_name} post based on community engagement.\n\n")
+        
         response_parts.append(f"**{metric_name.title()} Post Analysis:**\n\n")
         
         # Top post details

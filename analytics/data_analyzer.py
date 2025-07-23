@@ -344,11 +344,23 @@ class ForumDataAnalyzer:
         
         query_lower = query.lower()
         
-        # Determine what engagement metric to analyze
+        # Determine what engagement metric to analyze with smart vague query handling
         if any(term in query_lower for term in ['highest rated', 'most rated', 'top rated', 'best rated']):
             metric_type = 'total_score'
             sort_desc = True
             metric_name = 'highest rated'
+        elif any(term in query_lower for term in ['rated', 'rating', 'score', 'scoring']) and len(query_lower.split()) <= 3:
+            # Auto-interpret vague rating queries as "highest rated"
+            metric_type = 'total_score'
+            sort_desc = True
+            metric_name = 'highest rated'
+            logger.info(f"Auto-interpreting vague query '{query}' as 'highest rated post'")
+        elif any(term in query_lower for term in ['best', 'good', 'great']) and len(query_lower.split()) <= 3:
+            # Auto-interpret vague "best" queries as "highest rated"
+            metric_type = 'total_score'
+            sort_desc = True
+            metric_name = 'highest rated'
+            logger.info(f"Auto-interpreting vague query '{query}' as 'highest rated post'")
         elif any(term in query_lower for term in ['most upvoted', 'most upvotes', 'top upvoted']):
             metric_type = 'upvotes'
             sort_desc = True
@@ -475,13 +487,17 @@ class ForumDataAnalyzer:
             'earliest user', 'initial poster', 'second to post', 'third to post'
         ]
         
-        # Engagement/rating queries (NEW - captures post engagement metrics)
+        # Engagement/rating queries (Enhanced - captures both explicit and vague engagement queries)
         engagement_indicators = [
             'highest rated', 'most rated', 'top rated', 'best rated', 'most popular',
             'most upvoted', 'most upvotes', 'top upvoted', 'most liked', 'most likes',
             'most reactions', 'most reacted', 'top reactions', 'most engaged',
             'top engagement', 'best post', 'top post', 'popular post', 'highest scoring',
-            'lowest rated', 'least rated', 'worst rated', 'least popular', 'least liked'
+            'lowest rated', 'least rated', 'worst rated', 'least popular', 'least liked',
+            # Vague engagement queries that should be auto-detected
+            'rated', 'rating', 'score', 'scoring', 'best', 'good', 'great', 'popular',
+            'liked', 'favorite', 'well received', 'community favorite', 'highly rated',
+            'upvoted', 'reactions', 'engagement', 'votes', 'voting'
         ]
         
         # Check if we can handle this query
@@ -525,14 +541,36 @@ class ForumDataAnalyzer:
         query_lower = query.lower()
         
         # Route to appropriate analysis method
-        # Check for engagement queries first (most specific - NEW)
-        if any(indicator in query_lower for indicator in [
+        # Check for engagement queries first (prioritized - includes vague queries)
+        engagement_indicators = [
             'highest rated', 'most rated', 'top rated', 'best rated', 'most popular',
             'most upvoted', 'most upvotes', 'top upvoted', 'most liked', 'most likes',
             'most reactions', 'most reacted', 'top reactions', 'most engaged',
             'top engagement', 'best post', 'top post', 'popular post', 'highest scoring',
-            'lowest rated', 'least rated', 'worst rated', 'least popular', 'least liked'
-        ]):
+            'lowest rated', 'least rated', 'worst rated', 'least popular', 'least liked',
+            # Vague engagement queries that should be auto-detected
+            'rated', 'rating', 'score', 'scoring', 'best', 'good', 'great', 'popular',
+            'liked', 'favorite', 'well received', 'community favorite', 'highly rated',
+            'upvoted', 'reactions', 'engagement', 'votes', 'voting'
+        ]
+        
+        # Smart engagement detection - prioritize even for vague queries
+        engagement_detected = False
+        for indicator in engagement_indicators:
+            if indicator in query_lower:
+                # Additional context checks for potentially ambiguous terms
+                if indicator in ['best', 'good', 'great', 'popular'] and len(query_lower.split()) <= 3:
+                    # For short vague queries with these terms, assume engagement intent
+                    engagement_detected = True
+                    logger.info(f"Auto-routing vague query '{query}' to engagement analysis (detected: '{indicator}')")
+                    break
+                elif indicator not in ['best', 'good', 'great', 'popular']:
+                    # For more specific terms, always route to engagement
+                    engagement_detected = True
+                    logger.info(f"Routing query '{query}' to engagement analysis (detected: '{indicator}')")
+                    break
+        
+        if engagement_detected:
             return self.analyze_engagement_queries(query)
         
         # Check for positional queries second (specific)
