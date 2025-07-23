@@ -718,6 +718,11 @@
       threadSelect.value = "";
       promptInput.value = "";
       deleteBtn.disabled = true;
+      
+      // Show URL section, hide reprocess section by default
+      urlSection.classList.remove('hidden');
+      reprocessSection.classList.add('hidden');
+      
       hideStatusPanel();
       hideResponsePanel();
       hideStatusMessage();
@@ -730,9 +735,15 @@
       deleteBtn.disabled = !selected;
 
       if (selected) {
+        // Thread selected - hide URL section, show reprocess option
         urlInput.value = "";
+        urlSection.classList.add('hidden');
+        reprocessSection.classList.remove('hidden');
         showStatusMessage(`Thread '${selected}' selected and ready for analysis.`, 'success');
       } else {
+        // No thread selected - show URL section, hide reprocess option
+        urlSection.classList.remove('hidden');
+        reprocessSection.classList.add('hidden');
         hideStatusMessage();
       }
     });
@@ -740,8 +751,10 @@
     // URL input handler
     urlInput.addEventListener("input", () => {
       if (urlInput.value.trim() !== "") {
+        // URL entered - clear thread selection, hide reprocess option
         threadSelect.value = "";
         deleteBtn.disabled = true;
+        reprocessSection.classList.add('hidden');
         hideStatusMessage();
       }
     });
