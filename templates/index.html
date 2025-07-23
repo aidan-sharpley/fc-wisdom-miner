@@ -792,7 +792,7 @@
       const prompt = promptInput.value.trim();
       const url = urlInput.value.trim();
       const existing_thread = threadSelect.value.trim();
-      const refresh = document.getElementById("refresh").checked;
+      const reprocess = document.getElementById("reprocess").checked;
 
       if (!prompt || (!url && !existing_thread)) {
         showStatusMessage("Please enter a question and either select a thread or enter a URL.", "warning");
@@ -808,7 +808,7 @@
       submitBtn.disabled = true;
 
       // Build the payload
-      const payload = { prompt, refresh };
+      const payload = { prompt, reprocess };
       if (existing_thread) {
         payload.existing_thread = existing_thread;
       } else if (url) {
