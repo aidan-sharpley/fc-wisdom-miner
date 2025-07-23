@@ -12,13 +12,16 @@ import threading
 
 # Base directory for data storage
 BASE_TMP_DIR = os.environ.get("BASE_TMP_DIR", "tmp")
+THREADS_DIR = os.path.join(BASE_TMP_DIR, "threads")
 
 # API endpoints for Ollama services
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
 OLLAMA_EMBED_API_URL = os.environ.get("OLLAMA_EMBED_API_URL", "http://localhost:11434/api/embeddings")
 
 # Model configurations
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "deepseek-r1:1.5b")
+OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL", "deepseek-r1:1.5b")
 OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text:v1.5")
 
 # ==================== File Naming Constants ====================
@@ -42,12 +45,19 @@ RETRY_BACKOFF = 2
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
 MIN_POST_LENGTH = 10  # Minimum characters for a valid post
+MAX_POST_LENGTH = 10000  # Maximum characters for a valid post
 
 # Search and retrieval settings
 QUERY_RERANK_SIZE = 20
 BATCH_RERANK_TIMEOUT = 45
 FINAL_TOP_K = 7
 MAX_WORKERS = 4  # Maximum concurrent threads for embedding
+
+# Embedding settings
+EMBEDDING_BATCH_SIZE = 10
+EMBEDDING_MAX_RETRIES = 3
+EMBEDDING_CACHE_SIZE = 1000
+DELAY_BETWEEN_REQUESTS = 0.1
 
 # ==================== HNSW Index Parameters ====================
 
@@ -197,8 +207,8 @@ FEATURES = {
 
 __all__ = [
     # Core settings
-    'BASE_TMP_DIR', 'OLLAMA_API_URL', 'OLLAMA_EMBED_API_URL', 
-    'OLLAMA_MODEL', 'OLLAMA_EMBED_MODEL',
+    'BASE_TMP_DIR', 'THREADS_DIR', 'OLLAMA_BASE_URL', 'OLLAMA_API_URL', 'OLLAMA_EMBED_API_URL', 
+    'OLLAMA_MODEL', 'OLLAMA_CHAT_MODEL', 'OLLAMA_EMBED_MODEL',
     
     # File names
     'INDEX_META_NAME', 'HNSW_INDEX_NAME', 'METADATA_INDEX_NAME',

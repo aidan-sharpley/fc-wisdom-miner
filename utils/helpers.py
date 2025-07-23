@@ -13,11 +13,28 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def post_hash(content: str) -> str:
+def hash_text(text: str) -> str:
+    """Create a hash for text content (for caching).
+    
+    Args:
+        text: Text content to hash
+        
+    Returns:
+        Hexadecimal hash string
+    """
+    if not text:
+        return hashlib.sha256(b"").hexdigest()
+    
+    return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def post_hash(content: str, author: str = "", date: str = "") -> str:
     """Create a consistent hash for caching embeddings.
     
     Args:
         content: The post content to hash
+        author: Post author (optional)
+        date: Post date (optional)
         
     Returns:
         Hexadecimal hash string for cache key
@@ -29,7 +46,9 @@ def post_hash(content: str) -> str:
         logger.warning(f"Invalid content for hashing: {type(content)}")
         return hashlib.sha256(b"").hexdigest()  # Return hash of empty string
     
-    return hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
+    # Combine content, author, and date for unique hash
+    combined = f"{content}|{author}|{date}"
+    return hashlib.sha256(combined.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def normalize_url(url: str) -> str:
@@ -196,6 +215,7 @@ def safe_float(value: str, default: float = 0.0) -> float:
 
 
 __all__ = [
+    'hash_text',
     'post_hash',
     'normalize_url', 
     'sanitize_filename',
