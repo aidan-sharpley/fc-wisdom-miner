@@ -322,7 +322,7 @@ class ForumScraper:
         
         return 'unknown-date'
     
-    def _extract_post_url(self, post_elem, base_url: str = None) -> tuple[str, str]:
+    def _extract_post_url(self, post_elem, base_url: str = None) -> Tuple[str, str]:
         """Extract post URL and ID from post element.
         
         Args:

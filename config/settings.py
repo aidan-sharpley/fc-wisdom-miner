@@ -48,30 +48,30 @@ CHUNK_OVERLAP = 150
 MIN_POST_LENGTH = 5  # Minimum characters for a valid post
 MAX_POST_LENGTH = 10000  # Maximum characters for a valid post
 
-# Search and retrieval settings
-QUERY_RERANK_SIZE = 20
+# Search and retrieval settings optimized for M1 MacBook Air (8GB RAM)
+QUERY_RERANK_SIZE = 15  # Reduced from 20 to save memory
 BATCH_RERANK_TIMEOUT = 45
 FINAL_TOP_K = 7
-MAX_WORKERS = 4  # Maximum concurrent threads for embedding
+MAX_WORKERS = 3  # Reduced from 4 for M1 efficiency cores (8GB RAM optimal)
 
-# Embedding settings
-EMBEDDING_BATCH_SIZE = 10
+# Embedding settings optimized for M1 performance
+EMBEDDING_BATCH_SIZE = 8  # Reduced from 10 to prevent memory spikes on 8GB systems
 EMBEDDING_MAX_RETRIES = 3
-EMBEDDING_CACHE_SIZE = 1000
-DELAY_BETWEEN_REQUESTS = 0.5
+EMBEDDING_CACHE_SIZE = 800  # Reduced from 1000 for memory management
+DELAY_BETWEEN_REQUESTS = 0.3  # Reduced delay for M1's efficiency
 
 # ==================== HNSW Index Parameters ====================
 
-# HNSW algorithm parameters optimized for forum content
-HNSW_M = 16  # Lower M for faster search
-HNSW_EF_CONSTRUCTION = 100  # Lower for faster index building
-HNSW_EF_SEARCH = 50  # Search parameter
+# HNSW algorithm parameters optimized for M1 MacBook Air performance
+HNSW_M = 12  # Reduced from 16 for M1 memory efficiency
+HNSW_EF_CONSTRUCTION = 80  # Reduced from 100 for faster building on M1
+HNSW_EF_SEARCH = 40  # Reduced from 50 for faster search on M1
 
-# Maximum number of elements for HNSW index
-HNSW_MAX_ELEMENTS = 12000
+# Maximum number of elements for HNSW index (8GB RAM optimized)
+HNSW_MAX_ELEMENTS = 10000  # Reduced from 12000 for memory management
 
-# Expected embedding dimension (adjust based on model)
-EXPECTED_EMBED_DIM = 768
+# Expected embedding dimension (nomic-embed-text:v1.5 = 768d)
+EXPECTED_EMBED_DIM = 768  # Confirmed for nomic-embed-text model
 
 # ==================== Thread Safety ====================
 

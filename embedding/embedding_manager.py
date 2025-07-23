@@ -41,9 +41,9 @@ class EmbeddingManager:
         self.base_url = base_url or OLLAMA_BASE_URL
         self.embed_url = f"{self.base_url}/api/embeddings"
 
-        # Advanced cache for embeddings
+        # Advanced cache for embeddings (M1 MacBook Air 8GB optimized)
         cache_dir = f"{BASE_TMP_DIR}/embeddings_cache"
-        self.cache = ContentBasedCache(cache_dir, max_size_mb=200)
+        self.cache = ContentBasedCache(cache_dir, max_size_mb=150)  # Reduced from 200MB for 8GB systems
         
         # Legacy cache tracking for compatibility
         self._cache_hits = 0

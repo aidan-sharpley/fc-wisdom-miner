@@ -17,7 +17,8 @@ from analytics.query_analytics import ConversationalQueryProcessor
 from analytics.thread_analyzer import ThreadAnalyzer
 from config.settings import (
     BASE_TMP_DIR, FEATURES, THREADS_DIR,
-    OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, OLLAMA_EMBED_MODEL
+    OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, OLLAMA_EMBED_MODEL,
+    MAX_WORKERS, EMBEDDING_BATCH_SIZE
 )
 from processing.thread_processor import ThreadProcessor
 from search.query_processor import QueryProcessor
@@ -249,14 +250,24 @@ def ask():
                             total_chars += len(chunk)
                             yield chunk
                     
-                    # Log completion stats
+                    # Log completion stats with better context for analytical queries
                     total_time = time.time() - request_start
                     context_posts = query_results.get('context_posts', 0)
+                    query_type = query_results.get('query_type', 'unknown')
                     
-                    logger.info(
-                        f"Query completed in {total_time:.1f}s: "
-                        f"posts={context_posts}, chars={total_chars}"
-                    )
+                    # For analytical queries, show total posts analyzed instead of context posts
+                    if query_type == 'analytical':
+                        analytical_result = query_results.get('analytical_result', {})
+                        posts_analyzed = analytical_result.get('thread_stats', {}).get('total_posts', context_posts)
+                        logger.info(
+                            f"Query completed in {total_time:.1f}s: "
+                            f"posts_analyzed={posts_analyzed}, chars={total_chars}, type={query_type}"
+                        )
+                    else:
+                        logger.info(
+                            f"Query completed in {total_time:.1f}s: "
+                            f"posts={context_posts}, chars={total_chars}, type={query_type}"
+                        )
                 else:
                     yield "Error: No response generated from query processor.\n"
                 
@@ -465,43 +476,68 @@ def internal_error(error):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    logger.error(f"Unhandled exception: {e}")
-    return jsonify({"error": "An unexpected error occurred"}), 500
+    """Production-ready exception handler with detailed logging."""
+    import traceback
+    error_id = str(time.time())  # Simple error ID for tracking
+    logger.error(f"Unhandled exception [{error_id}]: {e}")
+    logger.error(f"Traceback [{error_id}]: {traceback.format_exc()}")
+    
+    # Don't expose internal errors in production
+    if app.debug:
+        return jsonify({"error": str(e), "error_id": error_id}), 500
+    else:
+        return jsonify({"error": "An unexpected error occurred", "error_id": error_id}), 500
 
 
 # -------------------- Application Startup --------------------
 app_start_time = time.time()
 
 if __name__ == "__main__":
-    # Ensure required directories exist
-    os.makedirs(BASE_TMP_DIR, exist_ok=True)
-    os.makedirs(THREADS_DIR, exist_ok=True)
-    
-    # Create log file
-    log_file = os.path.join(BASE_TMP_DIR, "app.log")
     try:
-        with open(log_file, "a") as f:
-            f.write(f"\n--- Forum Wisdom Miner v2.0 (Modular) started at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        # Ensure required directories exist
+        os.makedirs(BASE_TMP_DIR, exist_ok=True)
+        os.makedirs(THREADS_DIR, exist_ok=True)
+        
+        # Create log file with proper error handling
+        log_file = os.path.join(BASE_TMP_DIR, "app.log")
+        try:
+            with open(log_file, "a") as f:
+                f.write(f"\n--- Forum Wisdom Miner v2.0 (M1 Optimized) started at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        except Exception as e:
+            logger.warning(f"Could not write to log file: {e}")
+        
+        # Log startup information with M1 optimizations
+        logger.info("="*60)
+        logger.info("Starting Forum Wisdom Miner v2.0 (M1 MacBook Air Optimized)")
+        logger.info("="*60)
+        logger.info(f"Base directory: {BASE_TMP_DIR}")
+        logger.info(f"Threads directory: {THREADS_DIR}")
+        logger.info(f"Ollama URL: {OLLAMA_BASE_URL}")
+        logger.info(f"Chat model: {OLLAMA_CHAT_MODEL}")
+        logger.info(f"Embedding model: {OLLAMA_EMBED_MODEL}")
+        logger.info(f"Features enabled: {', '.join(f for f, enabled in FEATURES.items() if enabled)}")
+        logger.info(f"M1 Optimizations: MAX_WORKERS={MAX_WORKERS}, BATCH_SIZE={EMBEDDING_BATCH_SIZE}")
+        
+        # Check existing threads with error handling
+        try:
+            existing_threads = list_available_threads()
+            logger.info(f"Found {len(existing_threads)} existing threads")
+        except Exception as e:
+            logger.error(f"Error checking existing threads: {e}")
+            existing_threads = []
+        
+        logger.info("Application ready!")
+        logger.info("="*60)
+        
+        # Start the Flask application with production settings
+        app.run(
+            host="0.0.0.0", 
+            port=8080, 
+            debug=False,  # Never enable debug in production
+            threaded=True,
+            use_reloader=False  # Prevent double startup in development
+        )
+        
     except Exception as e:
-        logger.warning(f"Could not write to log file: {e}")
-    
-    # Log startup information
-    logger.info("="*60)
-    logger.info("Starting Forum Wisdom Miner v2.0 (Modular Architecture)")
-    logger.info("="*60)
-    logger.info(f"Base directory: {BASE_TMP_DIR}")
-    logger.info(f"Threads directory: {THREADS_DIR}")
-    logger.info(f"Ollama URL: {OLLAMA_BASE_URL}")
-    logger.info(f"Chat model: {OLLAMA_CHAT_MODEL}")
-    logger.info(f"Embedding model: {OLLAMA_EMBED_MODEL}")
-    logger.info(f"Features enabled: {', '.join(f for f, enabled in FEATURES.items() if enabled)}")
-    
-    # Check existing threads
-    existing_threads = list_available_threads()
-    logger.info(f"Found {len(existing_threads)} existing threads")
-    
-    logger.info("Application ready!")
-    logger.info("="*60)
-    
-    # Start the Flask application
-    app.run(host="0.0.0.0", port=8080, debug=False, threaded=True)
+        logger.critical(f"Failed to start application: {e}")
+        raise
