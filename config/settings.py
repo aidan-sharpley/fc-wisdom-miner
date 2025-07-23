@@ -63,9 +63,9 @@ DELAY_BETWEEN_REQUESTS = 0.1
 # ==================== HNSW Index Parameters ====================
 
 # HNSW algorithm parameters optimized for forum content
-HNSW_M = 32  # Lower M for faster search
-HNSW_EF_CONSTRUCTION = 200  # Lower for faster index building
-HNSW_EF_SEARCH = 100  # Search parameter
+HNSW_M = 16  # Lower M for faster search
+HNSW_EF_CONSTRUCTION = 100  # Lower for faster index building
+HNSW_EF_SEARCH = 50  # Search parameter
 
 # Maximum number of elements for HNSW index
 HNSW_MAX_ELEMENTS = 12000
