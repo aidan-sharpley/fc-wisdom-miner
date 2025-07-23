@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 import requests
+from tqdm import tqdm
 
 from config.settings import (
     EMBEDDING_BATCH_SIZE,
@@ -136,12 +137,16 @@ class EmbeddingManager:
             List of embedding arrays
         """
         embeddings = []
+        total_batches = (len(texts) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
 
-        # Process in batches
-        for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
-            batch = texts[i : i + EMBEDDING_BATCH_SIZE]
-            batch_embeddings = self._generate_single_batch(batch)
-            embeddings.extend(batch_embeddings)
+        # Process in batches with progress bar
+        with tqdm(total=total_batches, desc="Generating embeddings", unit="batch") as pbar:
+            for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+                batch = texts[i : i + EMBEDDING_BATCH_SIZE]
+                batch_embeddings = self._generate_single_batch(batch)
+                embeddings.extend(batch_embeddings)
+                pbar.update(1)
+                pbar.set_postfix({"embeddings": len(embeddings), "total": len(texts)})
 
         return embeddings
 

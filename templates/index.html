@@ -574,8 +574,10 @@
         <button type="button" id="delete-thread-btn" class="btn btn-danger btn-small" disabled>Delete</button>
       </div>
 
-      <label for="url">Or enter new thread URL:</label>
-      <input type="text" id="url" name="url" placeholder="https://example.com/thread/12345" />
+      <div id="url-section">
+        <label for="url">Or enter new thread URL:</label>
+        <input type="text" id="url" name="url" placeholder="https://example.com/thread/12345" />
+      </div>
     </div>
 
     <div class="form-section">
@@ -588,9 +590,9 @@
       <textarea id="prompt" name="prompt" rows="3" required
         placeholder="Ask anything about the thread... e.g., 'What are the main opinions?', 'Who is most active?', 'Summarize the discussion'"></textarea>
       
-      <div class="checkbox-container">
-        <input type="checkbox" id="refresh" name="refresh" />
-        <label for="refresh">Refresh forum data (re-fetch thread content)</label>
+      <div id="reprocess-section" class="checkbox-container hidden">
+        <input type="checkbox" id="reprocess" name="reprocess" />
+        <label for="reprocess">Reprocess thread (re-parse HTML with latest optimizations)</label>
       </div>
     </div>
 
@@ -615,9 +617,11 @@
     const responseEl = document.getElementById("response");
     const responsePanel = document.getElementById("response-panel");
     const urlInput = document.getElementById("url");
+    const urlSection = document.getElementById("url-section");
     const threadSelect = document.getElementById("thread-select");
     const deleteBtn = document.getElementById("delete-thread-btn");
     const promptInput = document.getElementById("prompt");
+    const reprocessSection = document.getElementById("reprocess-section");
     
     // Status Panel Elements
     const statusPanel = document.getElementById("status-panel");

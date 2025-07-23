@@ -117,6 +117,37 @@ def _parse_relative_time(date_str: str) -> Optional[datetime]:
             return now.replace(hour=hour, minute=minute, second=second, microsecond=0)
         return now.replace(hour=12, minute=0, second=0, microsecond=0)
     
+    # Handle "Thursday at 7:55 AM" patterns (recent dates)
+    day_time_pattern = r'(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+at\s+(\d{1,2}):(\d{2})\s*(am|pm)'
+    match = re.search(day_time_pattern, date_lower)
+    if match:
+        day_name, hour_str, minute_str, am_pm = match.groups()
+        
+        # Convert to 24-hour format
+        hour = int(hour_str)
+        if am_pm.lower() == 'pm' and hour != 12:
+            hour += 12
+        elif am_pm.lower() == 'am' and hour == 12:
+            hour = 0
+        
+        minute = int(minute_str)
+        
+        # Find the most recent occurrence of this day
+        current_weekday = now.weekday()  # 0=Monday, 6=Sunday
+        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        target_weekday = day_names.index(day_name)
+        
+        # Calculate days back to this day
+        days_back = (current_weekday - target_weekday) % 7
+        if days_back == 0:
+            # Same day - check if time has passed
+            target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if target_time > now:
+                days_back = 7  # Must be last week
+        
+        target_date = now - timedelta(days=days_back)
+        return target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
     return None
 
 
