@@ -239,6 +239,92 @@ class ForumDataAnalyzer:
         
         return result
     
+    def analyze_positional_queries(self, query: str) -> Dict[str, Any]:
+        """Analyze positional queries like 'who was the second user to post'.
+        
+        Args:
+            query: The original query
+            
+        Returns:
+            Analysis results with positional data
+        """
+        posts = self._load_posts()
+        
+        if not posts:
+            return {
+                'error': 'No posts available for analysis',
+                'type': 'positional_analysis'
+            }
+        
+        # Sort posts by position (global_position or index)
+        sorted_posts = sorted(posts, key=lambda x: x.get('global_position', 0))
+        
+        query_lower = query.lower()
+        
+        # Extract ordinal number from query
+        ordinal_map = {
+            'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+            '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5,
+            'earliest': 1, 'initial': 1
+        }
+        
+        position = 1  # default to first
+        for ordinal, num in ordinal_map.items():
+            if ordinal in query_lower:
+                position = num
+                break
+        
+        # Get unique authors in posting order
+        unique_authors = []
+        seen_authors = set()
+        
+        for post in sorted_posts:
+            author = post.get('author', 'Unknown')
+            if author and author.lower() not in ['unknown', 'deleted', 'guest']:
+                if author not in seen_authors:
+                    unique_authors.append(author)
+                    seen_authors.add(author)
+        
+        # Get the requested position
+        if position <= len(unique_authors):
+            target_author = unique_authors[position - 1]
+            
+            # Find their first post for additional info
+            first_post = None
+            for post in sorted_posts:
+                if post.get('author') == target_author:
+                    first_post = post
+                    break
+            
+            result = {
+                'type': 'positional_analysis',
+                'query': query,
+                'position': position,
+                'author': target_author,
+                'total_unique_authors': len(unique_authors),
+                'confidence': 0.95
+            }
+            
+            if first_post:
+                result.update({
+                    'first_post_date': first_post.get('date', 'Unknown'),
+                    'first_post_content': first_post.get('content', '')[:200] + '...' if len(first_post.get('content', '')) > 200 else first_post.get('content', ''),
+                    'post_position': first_post.get('global_position', 0),
+                    'post_url': first_post.get('url', ''),
+                    'post_id': first_post.get('post_id', ''),
+                    'page_number': first_post.get('page', 0)
+                })
+            
+            return result
+        else:
+            return {
+                'type': 'positional_analysis',
+                'query': query,
+                'error': f'Only {len(unique_authors)} unique authors found in thread (requested position: {position})',
+                'total_unique_authors': len(unique_authors),
+                'confidence': 0.9
+            }
+    
     def can_handle_query(self, query: str, analytical_intent: List[str]) -> bool:
         """Determine if this analyzer can handle the given query.
         
@@ -269,6 +355,13 @@ class ForumDataAnalyzer:
             'last post', 'duration', 'activity pattern'
         ]
         
+        # Positional/ordinal queries
+        positional_indicators = [
+            'first user', 'second user', 'third user', 'first poster', 'second poster',
+            'who was the first', 'who was the second', 'who posted first', 'who posted second',
+            'earliest user', 'initial poster', 'second to post', 'third to post'
+        ]
+        
         # Check if we can handle this query
         if any(indicator in query_lower for indicator in participant_indicators):
             return True
@@ -277,6 +370,9 @@ class ForumDataAnalyzer:
             return True
         
         if any(indicator in query_lower for indicator in temporal_indicators):
+            return True
+            
+        if any(indicator in query_lower for indicator in positional_indicators):
             return True
         
         # Check analytical intents
@@ -304,7 +400,15 @@ class ForumDataAnalyzer:
         query_lower = query.lower()
         
         # Route to appropriate analysis method
+        # Check for positional queries first (more specific)
         if any(indicator in query_lower for indicator in [
+            'first user', 'second user', 'third user', 'first poster', 'second poster',
+            'who was the first', 'who was the second', 'who posted first', 'who posted second',
+            'earliest user', 'initial poster', 'second to post', 'third to post'
+        ]):
+            return self.analyze_positional_queries(query)
+        
+        elif any(indicator in query_lower for indicator in [
             'most active', 'who posted', 'top contributor', 'most posts',
             'who is', 'active user', 'frequent poster'
         ]) or 'participants' in analytical_intent:

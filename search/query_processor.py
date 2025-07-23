@@ -420,6 +420,8 @@ class QueryProcessor:
             return self._format_content_statistics(analytical_result)
         elif result_type == 'temporal_analysis':
             return self._format_temporal_analysis(analytical_result)
+        elif result_type == 'positional_analysis':
+            return self._format_positional_analysis(analytical_result)
         else:
             return f"Analysis complete. Result type: {result_type}"
     
@@ -533,6 +535,51 @@ class QueryProcessor:
                 response_parts.append(
                     f"• **Average activity**: {avg_per_day:.1f} posts per day\n"
                 )
+        
+        return ''.join(response_parts)
+    
+    def _format_positional_analysis(self, result: Dict) -> str:
+        """Format positional analysis results."""
+        if 'error' in result:
+            return f"**Analysis Error:**\n\n{result['error']}\n\nTotal unique authors found: {result.get('total_unique_authors', 0)}"
+        
+        position = result.get('position', 1)
+        author = result.get('author', 'Unknown')
+        total_authors = result.get('total_unique_authors', 0)
+        
+        ordinal_map = {1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth'}
+        position_text = ordinal_map.get(position, f"{position}th")
+        
+        response_parts = []
+        response_parts.append(f"**{position_text.title()} User to Post:**\n\n")
+        response_parts.append(f"• **Author**: {author}\n")
+        response_parts.append(f"• **Position**: {position} out of {total_authors} unique authors\n")
+        
+        # Add first post details if available
+        first_post_date = result.get('first_post_date')
+        post_position = result.get('post_position')
+        first_post_content = result.get('first_post_content')
+        post_url = result.get('post_url')
+        post_id = result.get('post_id')
+        page_number = result.get('page_number')
+        
+        if first_post_date:
+            response_parts.append(f"• **First post date**: {first_post_date}\n")
+        
+        if post_position:
+            response_parts.append(f"• **Post position in thread**: #{post_position}\n")
+        
+        if page_number:
+            response_parts.append(f"• **Page**: {page_number}\n")
+        
+        # Add post link if available
+        if post_url:
+            response_parts.append(f"• **Direct link**: {post_url}\n")
+        elif post_id:
+            response_parts.append(f"• **Post ID**: {post_id}\n")
+        
+        if first_post_content:
+            response_parts.append(f"\n**First post preview:**\n> {first_post_content}\n")
         
         return ''.join(response_parts)
 

@@ -163,7 +163,7 @@ class ForumScraper:
                     logger.warning(f"Failed to save HTML to {html_file_path}: {e}")
             
             soup = BeautifulSoup(response.text, 'html.parser')
-            posts = self._extract_posts(soup, page_num, start_position)
+            posts = self._extract_posts(soup, page_num, start_position, url)
             next_url = self._find_next_page_url(soup, url)
             
             return posts, next_url
@@ -200,7 +200,7 @@ class ForumScraper:
         
         return None
     
-    def _extract_posts(self, soup: BeautifulSoup, page_num: int, start_position: int) -> List[Dict]:
+    def _extract_posts(self, soup: BeautifulSoup, page_num: int, start_position: int, page_url: str = None) -> List[Dict]:
         """Extract posts from a page's HTML.
         
         Args:
@@ -228,7 +228,7 @@ class ForumScraper:
         for i, post_elem in enumerate(post_elements):
             try:
                 post_data = self._extract_single_post(
-                    post_elem, page_num, start_position + i
+                    post_elem, page_num, start_position + i, page_url
                 )
                 if post_data:
                     posts.append(post_data)
@@ -239,7 +239,7 @@ class ForumScraper:
         
         return posts
     
-    def _extract_single_post(self, post_elem, page_num: int, global_position: int) -> Optional[Dict]:
+    def _extract_single_post(self, post_elem, page_num: int, global_position: int, base_url: str = None) -> Optional[Dict]:
         """Extract data from a single post element.
         
         Args:
@@ -265,6 +265,9 @@ class ForumScraper:
             date_raw = self._extract_date(post_elem)
             parsed_date = parse_forum_date(date_raw)
             
+            # Extract post URL/ID
+            post_url, post_id = self._extract_post_url(post_elem, base_url)
+            
             # Extract vote counts
             vote_data = self._extract_votes(post_elem)
             
@@ -278,7 +281,8 @@ class ForumScraper:
                 'page': page_num,
                 'position_on_page': global_position - ((page_num - 1) * 20),  # Approximate
                 'global_position': global_position,
-                'url': '',  # Will be set by caller
+                'url': post_url,
+                'post_id': post_id,
                 'hash': post_hash(content_clean, author, date_raw),
                 **vote_data  # Include upvotes, downvotes, reactions
             }
@@ -317,6 +321,82 @@ class ForumScraper:
                         return str(date_attr)
         
         return 'unknown-date'
+    
+    def _extract_post_url(self, post_elem, base_url: str = None) -> tuple[str, str]:
+        """Extract post URL and ID from post element.
+        
+        Args:
+            post_elem: BeautifulSoup element containing the post
+            
+        Returns:
+            Tuple of (post_url, post_id)
+        """
+        post_url = ''
+        post_id = ''
+        
+        try:
+            # Common patterns for post URLs and IDs
+            url_selectors = [
+                'a[href*="#post-"]',          # XenForo #post-123456
+                'a[href*="#p"]',              # Various forums #p123456  
+                'a[href*="post"]',            # Generic post links
+                '.message-permalink',         # XenForo permalink
+                '.post-permalink',            # Generic permalink
+                '[data-post-id]',             # Data attribute
+                '.postNumber a',              # Post number links
+                '.post-link'                  # Generic post link class
+            ]
+            
+            for selector in url_selectors:
+                url_elem = post_elem.select_one(selector)
+                if url_elem:
+                    href = url_elem.get('href', '')
+                    if href:
+                        post_url = href
+                        # Extract post ID from URL patterns like #post-123456 or #p123456
+                        import re
+                        id_match = re.search(r'#(?:post-|p)(\d+)', href)
+                        if id_match:
+                            post_id = id_match.group(1)
+                        break
+            
+            # Try data attributes for post ID if not found in URL
+            if not post_id:
+                id_attrs = ['data-post-id', 'data-id', 'id']
+                for attr in id_attrs:
+                    attr_value = post_elem.get(attr, '')
+                    if attr_value:
+                        # Extract numbers from attribute value
+                        import re
+                        numbers = re.findall(r'\d+', attr_value)
+                        if numbers:
+                            post_id = numbers[0]
+                            break
+            
+            # If we have a post ID but no URL, try to construct URL
+            if post_id and not post_url and base_url:
+                # Construct full URL with base thread URL
+                if '#' in base_url:
+                    base_url = base_url.split('#')[0]  # Remove any existing fragment
+                post_url = f"{base_url}#post-{post_id}"
+            elif post_id and not post_url:
+                # Fallback if no base URL provided
+                post_url = f"#post-{post_id}"
+            
+            # Convert relative URLs to absolute URLs
+            if post_url and base_url and not post_url.startswith('http'):
+                if post_url.startswith('#'):
+                    # Fragment identifier - append to base URL
+                    base_clean = base_url.split('#')[0]
+                    post_url = f"{base_clean}{post_url}"
+                else:
+                    # Relative URL - use urljoin
+                    post_url = urljoin(base_url, post_url)
+                
+        except Exception as e:
+            logger.debug(f"Error extracting post URL: {e}")
+        
+        return post_url, post_id
     
     def _extract_votes(self, post_elem) -> Dict[str, int]:
         """Extract vote counts from post element.
