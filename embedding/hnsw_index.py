@@ -124,14 +124,26 @@ class HNSWIndex:
         if not embeddings:
             return
 
+        logger.info(f'Building HNSW index for {len(embeddings)} embeddings...')
+
         # Convert to numpy array
         embedding_matrix = np.array(embeddings, dtype=np.float32)
 
-        # Add to index
+        # Add to index with progress tracking for large datasets
         start_idx = self.metadata['num_elements']
         indices = list(range(start_idx, start_idx + len(embeddings)))
 
-        self.index.add_items(embedding_matrix, indices)
+        if len(embeddings) > 1000:  # Show progress for large datasets
+            from tqdm import tqdm
+            batch_size = 500
+            with tqdm(total=len(embeddings), desc="Building HNSW index", unit="embeddings") as pbar:
+                for i in range(0, len(embeddings), batch_size):
+                    batch_embeddings = embedding_matrix[i:i + batch_size]
+                    batch_indices = indices[i:i + batch_size]
+                    self.index.add_items(batch_embeddings, batch_indices)
+                    pbar.update(len(batch_embeddings))
+        else:
+            self.index.add_items(embedding_matrix, indices)
 
         # Update metadata
         self.metadata['post_ids'].extend(post_hashes)

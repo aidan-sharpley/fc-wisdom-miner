@@ -58,17 +58,41 @@ class ThreadAnalyzer:
         logger.info(f'Analyzing thread with {len(posts)} posts')
         start_time = time.time()
 
-        analytics = {
-            'metadata': self._analyze_metadata(posts),
-            'participants': self._analyze_participants(posts),
-            'content': self._analyze_content(posts),
-            'temporal': self._analyze_temporal_patterns(posts),
-            'topics': self._analyze_topics(posts),
-            'interaction': self._analyze_interactions(posts),
-            'statistics': self._calculate_statistics(posts),
-            'generated_at': time.time(),
-            'analysis_time': 0,  # Will be updated below
-        }
+        # Show progress for large datasets
+        if len(posts) > 1000:
+            from tqdm import tqdm
+            analysis_steps = [
+                ('metadata', self._analyze_metadata),
+                ('participants', self._analyze_participants), 
+                ('content', self._analyze_content),
+                ('temporal', self._analyze_temporal_patterns),
+                ('topics', self._analyze_topics),
+                ('interaction', self._analyze_interactions),
+                ('statistics', self._calculate_statistics)
+            ]
+            
+            analytics = {
+                'generated_at': time.time(),
+                'analysis_time': 0,  # Will be updated below
+            }
+            
+            with tqdm(total=len(analysis_steps), desc="Generating thread analytics", unit="step") as pbar:
+                for step_name, step_func in analysis_steps:
+                    analytics[step_name] = step_func(posts)
+                    pbar.set_postfix({"step": step_name})
+                    pbar.update(1)
+        else:
+            analytics = {
+                'metadata': self._analyze_metadata(posts),
+                'participants': self._analyze_participants(posts),
+                'content': self._analyze_content(posts),
+                'temporal': self._analyze_temporal_patterns(posts),
+                'topics': self._analyze_topics(posts),
+                'interaction': self._analyze_interactions(posts),
+                'statistics': self._calculate_statistics(posts),
+                'generated_at': time.time(),
+                'analysis_time': 0,  # Will be updated below
+            }
 
         analytics['analysis_time'] = time.time() - start_time
 
