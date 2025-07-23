@@ -209,6 +209,10 @@ def _parse_forum_specific_formats(date_str: str) -> Optional[datetime]:
         r'([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2})\s*(AM|PM)',
         # "December 25, 2023, 2:30 PM"
         r'([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4}),?\s+(\d{1,2}):(\d{2})\s*(AM|PM)',
+        # "Dec 25, 2023" (without time) - COMMON FORUM FORMAT
+        r'([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})$',
+        # "December 25, 2023" (without time)
+        r'([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$',
         # "25 Dec 2023"
         r'(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})',
         # "2023-12-25 14:30"
@@ -234,7 +238,7 @@ def _parse_forum_specific_formats(date_str: str) -> Optional[datetime]:
         match = re.search(pattern, date_str, re.IGNORECASE)
         if match:
             try:
-                if i == 0 or i == 1:  # Month name formats
+                if i == 0 or i == 1:  # Month name formats with time
                     month_str = match.group(1).lower()
                     month = month_names.get(month_str)
                     if not month:
@@ -251,7 +255,16 @@ def _parse_forum_specific_formats(date_str: str) -> Optional[datetime]:
                     
                     return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
                 
-                elif i == 2:  # "25 Dec 2023"
+                elif i == 2 or i == 3:  # "Dec 25, 2023" or "December 25, 2023" (no time)
+                    month_str = match.group(1).lower()
+                    month = month_names.get(month_str)
+                    if not month:
+                        continue
+                    day = int(match.group(2))
+                    year = int(match.group(3))
+                    return datetime(year, month, day, 12, 0, tzinfo=timezone.utc)  # Default to noon
+                
+                elif i == 4:  # "25 Dec 2023"
                     day = int(match.group(1))
                     month_str = match.group(2).lower()
                     month = month_names.get(month_str)
@@ -260,7 +273,7 @@ def _parse_forum_specific_formats(date_str: str) -> Optional[datetime]:
                     year = int(match.group(3))
                     return datetime(year, month, day, tzinfo=timezone.utc)
                 
-                elif i == 3:  # "2023-12-25 14:30"
+                elif i == 5:  # "2023-12-25 14:30"
                     year = int(match.group(1))
                     month = int(match.group(2))
                     day = int(match.group(3))

@@ -65,6 +65,8 @@ class PostProcessor:
         self.stats['total_processed'] = len(raw_posts)
         
         logger.info(f"Post processing complete: {len(sorted_posts)} posts remain after processing")
+        logger.info(f"Processing stages: cleaned={len(cleaned_posts)}, deduplicated={len(deduplicated_posts)}, filtered={len(filtered_posts)}, enhanced={len(enhanced_posts)}")
+        logger.info(f"Removed: {self.stats['duplicates_removed']} duplicates, {self.stats['filtered_out']} low-quality posts")
         
         return sorted_posts, self.stats.copy()
     
@@ -189,35 +191,39 @@ class PostProcessor:
         """Check if content is low quality."""
         content_lower = content.lower()
         
-        # Check for common low-quality patterns
+        # Check for common low-quality patterns (be more conservative)
         low_quality_patterns = [
             'deleted by moderator',
             'this post has been removed',
             'user has been banned',
-            '+1',
-            'me too',
-            'same here',
-            'this',
-            '^',
-            'bump',
+            'post deleted',
+            '[deleted]',
         ]
         
+        # Only filter if the entire content is just low-quality patterns
         for pattern in low_quality_patterns:
             if pattern in content_lower:
                 return True
         
-        # Check ratio of letters to total characters
+        # Filter very short posts that are just single low-quality words
+        if len(content.strip()) <= 15:  # Very short posts
+            short_low_quality = ['+1', 'me too', 'same here', 'this', '^', 'bump']
+            content_stripped = content.strip().lower()
+            if content_stripped in short_low_quality:
+                return True
+        
+        # Check ratio of letters to total characters (more lenient)
         letter_count = sum(1 for c in content if c.isalpha())
         if len(content) > 0:
             letter_ratio = letter_count / len(content)
-            if letter_ratio < 0.5:  # Less than 50% letters
+            if letter_ratio < 0.3:  # Less than 30% letters (was 50%)
                 return True
         
-        # Check for excessive repetition
+        # Check for excessive repetition (more lenient)
         words = content.split()
-        if len(words) > 0:
+        if len(words) > 3:  # Only check if more than 3 words
             unique_words = set(words)
-            if len(unique_words) / len(words) < 0.3:  # Less than 30% unique words
+            if len(unique_words) / len(words) < 0.2:  # Less than 20% unique words (was 30%)
                 return True
         
         return False

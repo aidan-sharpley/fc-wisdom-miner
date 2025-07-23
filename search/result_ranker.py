@@ -116,8 +116,16 @@ class PostRanker:
         }
         
         # Calculate weighted final score
+        score_weight_mapping = {
+            'semantic_score': 'semantic_similarity',
+            'recency_score': 'recency',
+            'vote_score': 'vote_score',
+            'authority_score': 'author_authority',
+            'quality_score': 'content_quality'
+        }
+        
         final_score = sum(
-            scores[score_type] * self.weights[score_type.replace('_score', '')]
+            scores[score_type] * self.weights[score_weight_mapping[score_type]]
             for score_type in scores
         )
         

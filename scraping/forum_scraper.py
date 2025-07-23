@@ -49,7 +49,7 @@ class ForumScraper:
         }
     
     @monitor_scraping_operation
-    def scrape_thread(self, base_url: str, max_pages: int = 50) -> Tuple[List[Dict], Dict]:
+    def scrape_thread(self, base_url: str, max_pages: int = 1000) -> Tuple[List[Dict], Dict]:
         """Scrape an entire forum thread across multiple pages.
         
         Args:
