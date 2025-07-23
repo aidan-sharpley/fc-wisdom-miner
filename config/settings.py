@@ -22,7 +22,6 @@ OLLAMA_EMBED_API_URL = os.environ.get(
 )
 
 # Model configurations
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "deepseek-r1:1.5b")
 OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL", "deepseek-r1:1.5b")
 OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text:v1.5")
 
@@ -212,7 +211,6 @@ __all__ = [
     "OLLAMA_BASE_URL",
     "OLLAMA_API_URL",
     "OLLAMA_EMBED_API_URL",
-    "OLLAMA_MODEL",
     "OLLAMA_CHAT_MODEL",
     "OLLAMA_EMBED_MODEL",
     # File names
