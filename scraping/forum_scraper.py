@@ -5,6 +5,7 @@ This module handles fetching and parsing forum threads from various forum platfo
 """
 
 import logging
+import os
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse

@@ -45,7 +45,7 @@ RETRY_BACKOFF = 2
 # Text processing settings
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
-MIN_POST_LENGTH = 10  # Minimum characters for a valid post
+MIN_POST_LENGTH = 5  # Minimum characters for a valid post
 MAX_POST_LENGTH = 10000  # Maximum characters for a valid post
 
 # Search and retrieval settings
@@ -58,7 +58,7 @@ MAX_WORKERS = 4  # Maximum concurrent threads for embedding
 EMBEDDING_BATCH_SIZE = 10
 EMBEDDING_MAX_RETRIES = 3
 EMBEDDING_CACHE_SIZE = 1000
-DELAY_BETWEEN_REQUESTS = 0.1
+DELAY_BETWEEN_REQUESTS = 0.5
 
 # ==================== HNSW Index Parameters ====================
 
@@ -129,27 +129,40 @@ DATE_SELECTORS = ["time[datetime]", ".message-date time", ".postDate", "[data-ti
 
 # Vote/reaction extraction selectors for different forum platforms
 VOTE_SELECTORS = {
-    'upvotes': [
+    "upvotes": [
         '.message-reaction-score[data-reaction="1"]',  # XenForo likes
-        '.like-count', '.upvote-count', '.positive-count',
-        '.reaction-score .positive', '[data-score]',
-        '.vote-up .count', '.thumbs-up .count'
+        ".like-count",
+        ".upvote-count",
+        ".positive-count",
+        ".reaction-score .positive",
+        "[data-score]",
+        ".vote-up .count",
+        ".thumbs-up .count",
     ],
-    'downvotes': [
+    "downvotes": [
         '.message-reaction-score[data-reaction="-1"]',  # XenForo dislikes
-        '.dislike-count', '.downvote-count', '.negative-count',
-        '.reaction-score .negative', '.vote-down .count',
-        '.thumbs-down .count'
+        ".dislike-count",
+        ".downvote-count",
+        ".negative-count",
+        ".reaction-score .negative",
+        ".vote-down .count",
+        ".thumbs-down .count",
     ],
-    'likes': [
-        '.like-button .count', '.likes .count', '.heart .count',
+    "likes": [
+        ".like-button .count",
+        ".likes .count",
+        ".heart .count",
         '.message-reaction[data-reaction="Like"] .count',
-        '.likes-received', '[data-likes]'
+        ".likes-received",
+        "[data-likes]",
     ],
-    'reactions': [
-        '.message-reactionSummary .count', '.reaction-count',
-        '.total-reactions', '.emoji-count', '.reaction-bar .count'
-    ]
+    "reactions": [
+        ".message-reactionSummary .count",
+        ".reaction-count",
+        ".total-reactions",
+        ".emoji-count",
+        ".reaction-bar .count",
+    ],
 }
 
 # ==================== Enhanced Query Processing ====================

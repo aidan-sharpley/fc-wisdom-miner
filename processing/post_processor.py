@@ -188,44 +188,43 @@ class PostProcessor:
         return False
     
     def _is_low_quality_content(self, content: str) -> bool:
-        """Check if content is low quality."""
+        """Check if content is low quality (VERY conservative filtering)."""
         content_lower = content.lower()
+        content_stripped = content.strip()
         
-        # Check for common low-quality patterns (be more conservative)
-        low_quality_patterns = [
+        # Only filter posts that are clearly system messages or deleted content
+        deleted_patterns = [
             'deleted by moderator',
             'this post has been removed',
             'user has been banned',
             'post deleted',
             '[deleted]',
+            'message deleted by user',
+            'content removed'
         ]
         
-        # Only filter if the entire content is just low-quality patterns
-        for pattern in low_quality_patterns:
-            if pattern in content_lower:
+        # Filter only if the ENTIRE content is just a deletion message
+        for pattern in deleted_patterns:
+            if pattern in content_lower and len(content_stripped) < 100:
                 return True
         
-        # Filter very short posts that are just single low-quality words
-        if len(content.strip()) <= 15:  # Very short posts
-            short_low_quality = ['+1', 'me too', 'same here', 'this', '^', 'bump']
-            content_stripped = content.strip().lower()
-            if content_stripped in short_low_quality:
+        # Filter only extremely short meaningless posts
+        if len(content_stripped) <= 3:  # Only 1-3 characters
+            return True
+        
+        # Filter only if post is just whitespace/punctuation
+        if len(content_stripped) > 0:
+            non_whitespace_chars = len([c for c in content_stripped if not c.isspace()])
+            if non_whitespace_chars == 0:
                 return True
         
-        # Check ratio of letters to total characters (more lenient)
-        letter_count = sum(1 for c in content if c.isalpha())
-        if len(content) > 0:
-            letter_ratio = letter_count / len(content)
-            if letter_ratio < 0.3:  # Less than 30% letters (was 50%)
+        # Filter only posts that are 100% non-alphabetic and very short
+        if len(content_stripped) <= 10:  # Very short posts only
+            letter_count = sum(1 for c in content_stripped if c.isalpha())
+            if letter_count == 0:  # No letters at all
                 return True
         
-        # Check for excessive repetition (more lenient)
-        words = content.split()
-        if len(words) > 3:  # Only check if more than 3 words
-            unique_words = set(words)
-            if len(unique_words) / len(words) < 0.2:  # Less than 20% unique words (was 30%)
-                return True
-        
+        # Don't filter based on letter ratio or repetition - too aggressive for forum content
         return False
     
     def _enhance_posts(self, posts: List[Dict]) -> List[Dict]:
