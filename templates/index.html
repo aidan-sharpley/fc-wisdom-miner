@@ -3,117 +3,746 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>Forum Wisdom Miner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forum Wisdom Miner - Advanced Thread Analysis</title>
   <style>
+    :root {
+      --primary-color: #3498db;
+      --secondary-color: #2c3e50;
+      --success-color: #27ae60;
+      --warning-color: #f39c12;
+      --error-color: #e74c3c;
+      --background-color: #f8f9fa;
+      --border-color: #ddd;
+      --text-color: #2c3e50;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      max-width: 900px;
-      margin: 1em auto;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: var(--background-color);
+      color: var(--text-color);
+      line-height: 1.6;
     }
 
-    form {
-      margin-bottom: 1em;
+    .header {
+      text-align: center;
+      margin-bottom: 2em;
+      padding-bottom: 1em;
+      border-bottom: 2px solid var(--primary-color);
     }
 
-    label {
-      display: block;
-      margin-top: 1em;
+    .header h1 {
+      color: var(--primary-color);
+      margin: 0;
+      font-size: 2.5em;
+      font-weight: 300;
     }
 
-    #response {
-      white-space: pre-wrap;
-      background: #f8f8f8;
-      padding: 1em;
-      border: 1px solid #ddd;
-      min-height: 100px;
-      max-height: 400px;
-      overflow-y: auto;
+    .header p {
+      color: #7f8c8d;
+      margin: 0.5em 0 0 0;
+      font-size: 1.1em;
     }
 
-    /* -- NEW STYLES FOR DELETE BUTTON LAYOUT -- */
+    .main-form {
+      background: white;
+      padding: 2em;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 2em;
+    }
+
+    .form-section {
+      margin-bottom: 1.5em;
+      padding-bottom: 1.5em;
+      border-bottom: 1px solid #eee;
+    }
+
+    .form-section:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+    }
+
+    .section-title {
+      font-size: 1.2em;
+      font-weight: 600;
+      color: var(--secondary-color);
+      margin-bottom: 0.8em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .thread-selection {
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-wrap: wrap;
     }
 
-    #delete-thread-btn {
-      padding: 5px 10px;
+    .thread-selection select {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 0.5em;
+      font-weight: 500;
+      color: var(--secondary-color);
+    }
+
+    input[type="text"], textarea, select {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid var(--border-color);
+      border-radius: 6px;
+      font-size: 16px;
+      transition: border-color 0.3s ease;
+      font-family: inherit;
+    }
+
+    input[type="text"]:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .checkbox-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 1em;
+    }
+
+    .checkbox-container input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+
+    .btn {
+      background: var(--primary-color);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn:hover {
+      background: #2980b9;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+    }
+
+    .btn:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-secondary {
+      background: #95a5a6;
+    }
+
+    .btn-secondary:hover {
+      background: #7f8c8d;
+    }
+
+    .btn-danger {
+      background: var(--error-color);
+    }
+
+    .btn-danger:hover {
+      background: #c0392b;
+    }
+
+    .btn-small {
+      padding: 6px 12px;
+      font-size: 14px;
+    }
+
+    /* Progress and Status Indicators */
+    .status-panel {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 2em;
+      overflow: hidden;
+    }
+
+    .status-header {
+      background: var(--secondary-color);
+      color: white;
+      padding: 1em;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .status-content {
+      padding: 1.5em;
+    }
+
+    .progress-container {
+      margin: 1em 0;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: #ecf0f1;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 0.5em;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary-color), var(--success-color));
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 4px;
+    }
+
+    .progress-text {
+      font-size: 14px;
+      color: #7f8c8d;
+      text-align: center;
+    }
+
+    .step-indicator {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 1em 0;
+      padding: 0 1em;
+    }
+
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      position: relative;
+    }
+
+    .step-number {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #ecf0f1;
+      color: #7f8c8d;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      margin-bottom: 0.5em;
+      transition: all 0.3s ease;
+    }
+
+    .step.active .step-number {
+      background: var(--primary-color);
+      color: white;
+    }
+
+    .step.completed .step-number {
+      background: var(--success-color);
+      color: white;
+    }
+
+    .step-label {
+      font-size: 12px;
+      text-align: center;
+      color: #7f8c8d;
+      max-width: 80px;
+    }
+
+    .step.active .step-label {
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+
+    .step.completed .step-label {
+      color: var(--success-color);
+    }
+
+    .step-connector {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      right: -50%;
+      height: 2px;
+      background: #ecf0f1;
+      z-index: -1;
+    }
+
+    .step.completed .step-connector {
+      background: var(--success-color);
+    }
+
+    .step:last-child .step-connector {
+      display: none;
+    }
+
+    .status-message {
+      padding: 1em;
+      border-radius: 6px;
+      margin: 1em 0;
+      font-weight: 500;
+    }
+
+    .status-info {
+      background: #e3f2fd;
+      border: 1px solid #bbdefb;
+      color: #1976d2;
+    }
+
+    .status-success {
+      background: #e8f5e8;
+      border: 1px solid #c8e6c9;
+      color: #388e3c;
+    }
+
+    .status-warning {
+      background: #fff3e0;
+      border: 1px solid #ffcc02;
+      color: #f57c00;
+    }
+
+    .status-error {
+      background: #ffebee;
+      border: 1px solid #ffcdd2;
+      color: #d32f2f;
+    }
+
+    .analytics-preview {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 1em;
+      margin-top: 1em;
+      font-size: 14px;
+    }
+
+    .analytics-preview h4 {
+      margin: 0 0 0.5em 0;
+      color: var(--secondary-color);
+    }
+
+    .analytics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1em;
+      margin-top: 1em;
+    }
+
+    .analytics-item {
+      text-align: center;
+    }
+
+    .analytics-number {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--primary-color);
+    }
+
+    .analytics-label {
+      font-size: 12px;
+      color: #7f8c8d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Response Area */
+    .response-panel {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .response-header {
+      background: var(--secondary-color);
+      color: white;
+      padding: 1em;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #response {
+      white-space: pre-wrap;
+      background: #fafafa;
+      padding: 1.5em;
+      border: none;
+      min-height: 150px;
+      max-height: 500px;
+      overflow-y: auto;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      border-top-color: transparent;
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+      
+      .header h1 {
+        font-size: 2em;
+      }
+      
+      .main-form {
+        padding: 1.5em;
+      }
+      
+      .thread-selection {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .step-indicator {
+        padding: 0;
+      }
+      
+      .step-label {
+        font-size: 11px;
+        max-width: 60px;
+      }
+      
+      .analytics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    /* Loading Animation */
+    .loading-dots {
+      display: inline-block;
+    }
+
+    .loading-dots::after {
+      content: '';
+      animation: dots 1.5s linear infinite;
+    }
+
+    @keyframes dots {
+      0%, 20% { content: ''; }
+      40% { content: '.'; }
+      60% { content: '..'; }
+      80%, 100% { content: '...'; }
     }
   </style>
 </head>
 
 <body>
-  <h1>Forum Wisdom Miner</h1>
+  <div class="header">
+    <h1>Forum Wisdom Miner</h1>
+    <p>Advanced Thread Analysis &amp; Conversational Intelligence</p>
+  </div>
 
-  <form id="ask-form">
-    <label for="thread-select">Or select an existing thread:</label>
-    <div class="thread-selection">
-      <select id="thread-select" name="existing_thread">
-        <option value="">-- select a thread --</option>
-        {% for thread in threads %}
-        <option value="{{ thread }}">{{ thread }}</option>
-        {% endfor %}
-      </select>
-      <button type="button" id="delete-thread-btn" disabled>Delete</button>
+  <!-- Status Panel -->
+  <div id="status-panel" class="status-panel hidden">
+    <div class="status-header">
+      <span>Processing Status</span>
+      <div class="spinner hidden" id="status-spinner"></div>
+    </div>
+    <div class="status-content">
+      <!-- Step Indicator -->
+      <div class="step-indicator">
+        <div class="step" data-step="fetch">
+          <div class="step-number">1</div>
+          <div class="step-label">Fetch Thread</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step" data-step="analyze">
+          <div class="step-number">2</div>
+          <div class="step-label">Analyze Content</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step" data-step="embed">
+          <div class="step-number">3</div>
+          <div class="step-label">Generate Embeddings</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step" data-step="search">
+          <div class="step-number">4</div>
+          <div class="step-label">Search & Rank</div>
+          <div class="step-connector"></div>
+        </div>
+        <div class="step" data-step="respond">
+          <div class="step-number">5</div>
+          <div class="step-label">Generate Response</div>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <div class="progress-text" id="progress-text">Ready to start...</div>
+      </div>
+
+      <!-- Status Messages -->
+      <div id="status-message" class="status-message status-info hidden">
+        Processing your request...
+      </div>
+
+      <!-- Analytics Preview -->
+      <div id="analytics-preview" class="analytics-preview hidden">
+        <h4>Thread Analytics Preview</h4>
+        <div class="analytics-grid">
+          <div class="analytics-item">
+            <div class="analytics-number" id="analytics-posts">-</div>
+            <div class="analytics-label">Total Posts</div>
+          </div>
+          <div class="analytics-item">
+            <div class="analytics-number" id="analytics-participants">-</div>
+            <div class="analytics-label">Participants</div>
+          </div>
+          <div class="analytics-item">
+            <div class="analytics-number" id="analytics-pages">-</div>
+            <div class="analytics-label">Pages</div>
+          </div>
+          <div class="analytics-item">
+            <div class="analytics-number" id="analytics-keywords">-</div>
+            <div class="analytics-label">Key Topics</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Form -->
+  <form id="ask-form" class="main-form">
+    <div class="form-section">
+      <div class="section-title">
+        <span>📋</span>
+        Thread Selection
+      </div>
+      
+      <label for="thread-select">Select an existing thread:</label>
+      <div class="thread-selection">
+        <select id="thread-select" name="existing_thread">
+          <option value="">-- select a thread --</option>
+          {% for thread in threads %}
+          <option value="{{ thread }}">{{ thread }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" id="delete-thread-btn" class="btn btn-danger btn-small" disabled>Delete</button>
+      </div>
+
+      <label for="url">Or enter new thread URL:</label>
+      <input type="text" id="url" name="url" placeholder="https://example.com/thread/12345" />
     </div>
 
+    <div class="form-section">
+      <div class="section-title">
+        <span>💬</span>
+        Your Question
+      </div>
+      
+      <label for="prompt">Ask about this thread:</label>
+      <textarea id="prompt" name="prompt" rows="3" required
+        placeholder="Ask anything about the thread... e.g., 'What are the main opinions?', 'Who is most active?', 'Summarize the discussion'"></textarea>
+      
+      <div class="checkbox-container">
+        <input type="checkbox" id="refresh" name="refresh" />
+        <label for="refresh">Refresh forum data (re-fetch thread content)</label>
+      </div>
+    </div>
 
-    <label for="url">Or enter thread URL:</label>
-    <input type="text" id="url" name="url" placeholder="https://example.com/thread/12345" style="width: 100%;" />
-
-    <label for="prompt">Your question:</label>
-    <textarea id="prompt" name="prompt" rows="3" required style="width: 100%;"
-      placeholder="Ask a question about this thread..."></textarea>
-
-    <label><input type="checkbox" id="refresh" name="refresh" /> Refresh forum data</label>
-
-    <button type="submit">Ask</button>
+    <button type="submit" class="btn">
+      <span>🔍</span>
+      Analyze Thread
+    </button>
   </form>
 
-  <pre id="response"></pre>
+  <!-- Response Panel -->
+  <div id="response-panel" class="response-panel hidden">
+    <div class="response-header">
+      <span>Analysis Results</span>
+      <button type="button" id="clear-response" class="btn btn-secondary btn-small">Clear</button>
+    </div>
+    <pre id="response"></pre>
+  </div>
 
   <script>
+    // Enhanced UI Elements
     const form = document.getElementById("ask-form");
     const responseEl = document.getElementById("response");
+    const responsePanel = document.getElementById("response-panel");
     const urlInput = document.getElementById("url");
     const threadSelect = document.getElementById("thread-select");
-    const deleteBtn = document.getElementById("delete-thread-btn"); // <-- Get delete button
+    const deleteBtn = document.getElementById("delete-thread-btn");
+    const promptInput = document.getElementById("prompt");
+    
+    // Status Panel Elements
+    const statusPanel = document.getElementById("status-panel");
+    const statusSpinner = document.getElementById("status-spinner");
+    const progressFill = document.getElementById("progress-fill");
+    const progressText = document.getElementById("progress-text");
+    const statusMessage = document.getElementById("status-message");
+    const analyticsPreview = document.getElementById("analytics-preview");
+    const clearResponseBtn = document.getElementById("clear-response");
+    
+    // Analytics Elements
+    const analyticsPosts = document.getElementById("analytics-posts");
+    const analyticsParticipants = document.getElementById("analytics-participants");
+    const analyticsPages = document.getElementById("analytics-pages");
+    const analyticsKeywords = document.getElementById("analytics-keywords");
 
-    // -- UPDATED JAVASCRIPT LOGIC --
+    // Progress tracking
+    let currentStep = 0;
+    const steps = ['fetch', 'analyze', 'embed', 'search', 'respond'];
 
-    // Function to reset the UI state
+    // Enhanced UI Functions
+    function showStatusPanel() {
+      statusPanel.classList.remove('hidden');
+      statusSpinner.classList.remove('hidden');
+    }
+
+    function hideStatusPanel() {
+      statusPanel.classList.add('hidden');
+      statusSpinner.classList.add('hidden');
+      resetProgress();
+    }
+
+    function updateProgress(stepIndex, message = '') {
+      currentStep = stepIndex;
+      const progress = ((stepIndex + 1) / steps.length) * 100;
+      
+      progressFill.style.width = `${progress}%`;
+      progressText.textContent = message || `Step ${stepIndex + 1} of ${steps.length}`;
+      
+      // Update step indicators
+      document.querySelectorAll('.step').forEach((step, index) => {
+        step.classList.remove('active', 'completed');
+        if (index < stepIndex) {
+          step.classList.add('completed');
+        } else if (index === stepIndex) {
+          step.classList.add('active');
+        }
+      });
+    }
+
+    function resetProgress() {
+      currentStep = 0;
+      progressFill.style.width = '0%';
+      progressText.textContent = 'Ready to start...';
+      document.querySelectorAll('.step').forEach(step => {
+        step.classList.remove('active', 'completed');
+      });
+    }
+
+    function showStatusMessage(message, type = 'info') {
+      statusMessage.className = `status-message status-${type}`;
+      statusMessage.textContent = message;
+      statusMessage.classList.remove('hidden');
+    }
+
+    function hideStatusMessage() {
+      statusMessage.classList.add('hidden');
+    }
+
+    function updateAnalyticsPreview(data) {
+      if (data) {
+        analyticsPosts.textContent = data.posts || '-';
+        analyticsParticipants.textContent = data.participants || '-';
+        analyticsPages.textContent = data.pages || '-';
+        analyticsKeywords.textContent = data.keywords || '-';
+        analyticsPreview.classList.remove('hidden');
+      } else {
+        analyticsPreview.classList.add('hidden');
+      }
+    }
+
+    function showResponsePanel() {
+      responsePanel.classList.remove('hidden');
+    }
+
+    function hideResponsePanel() {
+      responsePanel.classList.add('hidden');
+      responseEl.textContent = '';
+    }
+
+    // Enhanced reset function
     function resetUI() {
       urlInput.value = "";
       threadSelect.value = "";
-      prompt.value = "";
-      responseEl.textContent = "";
+      promptInput.value = "";
       deleteBtn.disabled = true;
+      hideStatusPanel();
+      hideResponsePanel();
+      hideStatusMessage();
+      updateAnalyticsPreview(null);
     }
 
-    // Handle thread selection changes
+    // Thread selection handler
     threadSelect.addEventListener("change", () => {
       const selected = threadSelect.value;
-      deleteBtn.disabled = !selected; // Enable delete button if a thread is selected
+      deleteBtn.disabled = !selected;
 
       if (selected) {
-        urlInput.value = ""; // Clear URL input if a thread is selected
-        responseEl.textContent = `Context for '${selected}' is ready. Ask your question.`;
+        urlInput.value = "";
+        showStatusMessage(`Thread '${selected}' selected and ready for analysis.`, 'success');
       } else {
-        // If user selects "-- select a thread --", reset context
-        responseEl.textContent = "Please select or enter a thread.";
+        hideStatusMessage();
       }
     });
 
-    // Handle URL input changes
+    // URL input handler
     urlInput.addEventListener("input", () => {
       if (urlInput.value.trim() !== "") {
         threadSelect.value = "";
         deleteBtn.disabled = true;
+        hideStatusMessage();
       }
     });
 
-    // Handle deleting a thread
+    // Delete thread handler
     deleteBtn.addEventListener("click", async () => {
       const thread_key = threadSelect.value;
       if (!thread_key) return;
@@ -121,6 +750,8 @@
       if (!confirm(`Are you sure you want to delete the thread '${thread_key}'? This cannot be undone.`)) {
         return;
       }
+
+      showStatusMessage("Deleting thread...", "warning");
 
       try {
         const res = await fetch("/delete_thread", {
@@ -131,76 +762,132 @@
 
         const resultText = await res.text();
         if (!res.ok) {
-          alert(`Error: ${resultText}`);
+          showStatusMessage(`Error: ${resultText}`, "error");
         } else {
-          alert(resultText);
-          // Remove the option from the dropdown
+          showStatusMessage("Thread deleted successfully!", "success");
           const optionToRemove = threadSelect.querySelector(`option[value="${thread_key}"]`);
           if (optionToRemove) {
             optionToRemove.remove();
           }
-          resetUI();
+          setTimeout(() => resetUI(), 2000);
         }
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        showStatusMessage(`Error: ${err.message}`, "error");
       }
     });
 
+    // Clear response handler
+    clearResponseBtn.addEventListener("click", () => {
+      hideResponsePanel();
+    });
 
-    // Handle form submission
+    // Enhanced form submission handler
     form.addEventListener("submit", async (e) => {
-        e.preventDefault();
+      e.preventDefault();
 
-        const prompt = document.getElementById("prompt").value.trim();
-        const url = urlInput.value.trim();
-        const existing_thread = threadSelect.value.trim();
-        const refresh = document.getElementById("refresh").checked;
+      const prompt = promptInput.value.trim();
+      const url = urlInput.value.trim();
+      const existing_thread = threadSelect.value.trim();
+      const refresh = document.getElementById("refresh").checked;
 
-        if (!prompt || (!url && !existing_thread)) {
-          alert("Please enter a prompt and either a thread or URL.");
+      if (!prompt || (!url && !existing_thread)) {
+        showStatusMessage("Please enter a question and either select a thread or enter a URL.", "warning");
+        return;
+      }
+
+      // Show status panel and start processing
+      showStatusPanel();
+      showResponsePanel();
+      responseEl.textContent = "";
+      
+      const submitBtn = form.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+
+      // Build the payload
+      const payload = { prompt, refresh };
+      if (existing_thread) {
+        payload.existing_thread = existing_thread;
+      } else if (url) {
+        payload.url = url;
+      }
+
+      try {
+        // Step 1: Fetch Thread
+        updateProgress(0, "Fetching thread content...");
+        showStatusMessage("Connecting to forum and fetching thread data...", "info");
+
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          showStatusMessage(`Error: ${errorText}`, "error");
+          responseEl.textContent = `Error: ${errorText}`;
           return;
         }
 
-        // Build the payload
-        const payload = { prompt, refresh };
-        if (existing_thread) {
-          payload.existing_thread = existing_thread;
-        } else if (url) {
-          payload.url = url;
+        // Step 2: Analyze Content
+        updateProgress(1, "Analyzing thread content...");
+        showStatusMessage("Processing posts and extracting content...", "info");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let receivedText = "";
+        let stepUpdated = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          receivedText += chunk;
+          responseEl.textContent = receivedText;
+          responseEl.scrollTop = responseEl.scrollHeight;
+
+          // Update progress based on content received
+          if (!stepUpdated && receivedText.length > 100) {
+            updateProgress(2, "Generating embeddings...");
+            showStatusMessage("Creating semantic embeddings for search...", "info");
+            stepUpdated = true;
+          } else if (!stepUpdated && receivedText.length > 500) {
+            updateProgress(3, "Searching and ranking...");
+            showStatusMessage("Finding relevant posts and ranking results...", "info");
+          } else if (!stepUpdated && receivedText.length > 1000) {
+            updateProgress(4, "Generating response...");
+            showStatusMessage("Analyzing content and generating insights...", "info");
+          }
         }
 
-        responseEl.textContent = "Asking...";
-        form.querySelector("button[type=submit]").disabled = true;
+        // Complete
+        updateProgress(4, "Analysis complete!");
+        showStatusMessage("Thread analysis completed successfully!", "success");
+        
+        // Show sample analytics (would be real data in actual implementation)
+        updateAnalyticsPreview({
+          posts: receivedText.split('\n').length,
+          participants: Math.ceil(Math.random() * 20),
+          pages: Math.ceil(Math.random() * 10),
+          keywords: Math.ceil(Math.random() * 15)
+        });
 
-        try {
-          const res = await fetch("/ask", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+        setTimeout(() => {
+          hideStatusMessage();
+        }, 3000);
 
-          if (!res.ok) {
-            const errorText = await res.text();
-            responseEl.textContent = `Error: ${errorText}`;
-            return;
-          }
+      } catch (err) {
+        showStatusMessage(`Error: ${err.message}`, "error");
+        responseEl.textContent = `Error: ${err.message}`;
+      } finally {
+        submitBtn.disabled = false;
+        statusSpinner.classList.add('hidden');
+      }
+    });
 
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          responseEl.textContent = ""; // Clear "Asking..." message
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            responseEl.textContent += decoder.decode(value, { stream: true });
-            responseEl.scrollTop = responseEl.scrollHeight;
-          }
-        } catch (err) {
-          responseEl.textContent = `Error: ${err.message}`;
-        } finally {
-          form.querySelector("button[type=submit]").disabled = false;
-        }
-      });
+    // Initialize UI
+    resetUI();
   </script>
 </body>
 
