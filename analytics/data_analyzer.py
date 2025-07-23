@@ -325,6 +325,119 @@ class ForumDataAnalyzer:
                 'confidence': 0.9
             }
     
+    def analyze_engagement_queries(self, query: str) -> Dict[str, Any]:
+        """Analyze engagement-based queries like 'highest rated post', 'most popular post', etc.
+        
+        Args:
+            query: The original query
+            
+        Returns:
+            Analysis results with engagement data
+        """
+        posts = self._load_posts()
+        
+        if not posts:
+            return {
+                'error': 'No posts available for analysis',
+                'type': 'engagement_analysis'
+            }
+        
+        query_lower = query.lower()
+        
+        # Determine what engagement metric to analyze
+        if any(term in query_lower for term in ['highest rated', 'most rated', 'top rated', 'best rated']):
+            metric_type = 'total_score'
+            sort_desc = True
+            metric_name = 'highest rated'
+        elif any(term in query_lower for term in ['most upvoted', 'most upvotes', 'top upvoted']):
+            metric_type = 'upvotes'
+            sort_desc = True
+            metric_name = 'most upvoted'
+        elif any(term in query_lower for term in ['most liked', 'most likes', 'top liked']):
+            metric_type = 'likes'
+            sort_desc = True
+            metric_name = 'most liked'
+        elif any(term in query_lower for term in ['most reactions', 'most reacted', 'top reactions']):
+            metric_type = 'reactions'
+            sort_desc = True
+            metric_name = 'most reactions'
+        elif any(term in query_lower for term in ['most popular', 'most engaged', 'top engagement']):
+            # Calculate combined engagement score
+            metric_type = 'combined_engagement'
+            sort_desc = True
+            metric_name = 'most popular'
+        elif any(term in query_lower for term in ['lowest rated', 'least rated', 'worst rated']):
+            metric_type = 'total_score'
+            sort_desc = False
+            metric_name = 'lowest rated'
+        else:
+            # Default to highest rated for general queries
+            metric_type = 'total_score'
+            sort_desc = True
+            metric_name = 'highest rated'
+        
+        # Calculate engagement scores for each post
+        scored_posts = []
+        for post in posts:
+            if metric_type == 'combined_engagement':
+                # Combined score: upvotes + likes + reactions + (total_score * 2)
+                score = (
+                    post.get('upvotes', 0) + 
+                    post.get('likes', 0) + 
+                    post.get('reactions', 0) + 
+                    (post.get('total_score', 0) * 2)
+                )
+            else:
+                score = post.get(metric_type, 0)
+            
+            if score > 0 or not sort_desc:  # Include posts with engagement or if looking for lowest
+                scored_posts.append({
+                    'post': post,
+                    'score': score,
+                    'author': post.get('author', 'Unknown'),
+                    'content_preview': post.get('content', '')[:200] + '...' if len(post.get('content', '')) > 200 else post.get('content', ''),
+                    'date': post.get('date', 'Unknown'),
+                    'page': post.get('page', 0),
+                    'global_position': post.get('global_position', 0),
+                    'post_url': post.get('url', ''),
+                    'post_id': post.get('post_id', ''),
+                    'upvotes': post.get('upvotes', 0),
+                    'downvotes': post.get('downvotes', 0),
+                    'likes': post.get('likes', 0),
+                    'reactions': post.get('reactions', 0),
+                    'total_score': post.get('total_score', 0)
+                })
+        
+        if not scored_posts:
+            return {
+                'type': 'engagement_analysis',
+                'query': query,
+                'error': f'No posts found with {metric_name} data',
+                'metric_type': metric_type,
+                'confidence': 0.8
+            }
+        
+        # Sort by engagement score
+        scored_posts.sort(key=lambda x: x['score'], reverse=sort_desc)
+        
+        # Get top result and additional context
+        top_post = scored_posts[0]
+        top_5_posts = scored_posts[:5]
+        
+        result = {
+            'type': 'engagement_analysis',
+            'query': query,
+            'metric_type': metric_type,
+            'metric_name': metric_name,
+            'top_post': top_post,
+            'top_5_posts': top_5_posts,
+            'total_posts_with_engagement': len(scored_posts),
+            'total_posts_analyzed': len(posts),
+            'confidence': 0.95
+        }
+        
+        return result
+    
     def can_handle_query(self, query: str, analytical_intent: List[str]) -> bool:
         """Determine if this analyzer can handle the given query.
         
@@ -362,6 +475,15 @@ class ForumDataAnalyzer:
             'earliest user', 'initial poster', 'second to post', 'third to post'
         ]
         
+        # Engagement/rating queries (NEW - captures post engagement metrics)
+        engagement_indicators = [
+            'highest rated', 'most rated', 'top rated', 'best rated', 'most popular',
+            'most upvoted', 'most upvotes', 'top upvoted', 'most liked', 'most likes',
+            'most reactions', 'most reacted', 'top reactions', 'most engaged',
+            'top engagement', 'best post', 'top post', 'popular post', 'highest scoring',
+            'lowest rated', 'least rated', 'worst rated', 'least popular', 'least liked'
+        ]
+        
         # Check if we can handle this query
         if any(indicator in query_lower for indicator in participant_indicators):
             return True
@@ -373,6 +495,9 @@ class ForumDataAnalyzer:
             return True
             
         if any(indicator in query_lower for indicator in positional_indicators):
+            return True
+            
+        if any(indicator in query_lower for indicator in engagement_indicators):
             return True
         
         # Check analytical intents
@@ -400,8 +525,18 @@ class ForumDataAnalyzer:
         query_lower = query.lower()
         
         # Route to appropriate analysis method
-        # Check for positional queries first (more specific)
+        # Check for engagement queries first (most specific - NEW)
         if any(indicator in query_lower for indicator in [
+            'highest rated', 'most rated', 'top rated', 'best rated', 'most popular',
+            'most upvoted', 'most upvotes', 'top upvoted', 'most liked', 'most likes',
+            'most reactions', 'most reacted', 'top reactions', 'most engaged',
+            'top engagement', 'best post', 'top post', 'popular post', 'highest scoring',
+            'lowest rated', 'least rated', 'worst rated', 'least popular', 'least liked'
+        ]):
+            return self.analyze_engagement_queries(query)
+        
+        # Check for positional queries second (specific)
+        elif any(indicator in query_lower for indicator in [
             'first user', 'second user', 'third user', 'first poster', 'second poster',
             'who was the first', 'who was the second', 'who posted first', 'who posted second',
             'earliest user', 'initial poster', 'second to post', 'third to post'

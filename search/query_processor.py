@@ -422,6 +422,8 @@ class QueryProcessor:
             return self._format_temporal_analysis(analytical_result)
         elif result_type == 'positional_analysis':
             return self._format_positional_analysis(analytical_result)
+        elif result_type == 'engagement_analysis':
+            return self._format_engagement_analysis(analytical_result)
         else:
             return f"Analysis complete. Result type: {result_type}"
     
@@ -535,6 +537,69 @@ class QueryProcessor:
                 response_parts.append(
                     f"• **Average activity**: {avg_per_day:.1f} posts per day\n"
                 )
+        
+        return ''.join(response_parts)
+    
+    def _format_engagement_analysis(self, result: Dict) -> str:
+        """Format engagement analysis results."""
+        if 'error' in result:
+            return f"**Analysis Error:**\n\n{result['error']}\n\nTotal posts analyzed: {result.get('total_posts_analyzed', 0)}"
+        
+        metric_name = result.get('metric_name', 'engagement')
+        top_post = result.get('top_post', {})
+        top_5_posts = result.get('top_5_posts', [])
+        
+        response_parts = []
+        response_parts.append(f"**{metric_name.title()} Post Analysis:**\n\n")
+        
+        # Top post details
+        if top_post:
+            response_parts.append(f"🏆 **Top Result:**\n")
+            response_parts.append(f"• **Author**: {top_post.get('author', 'Unknown')}\n")
+            response_parts.append(f"• **Score**: {top_post.get('score', 0)}\n")
+            response_parts.append(f"• **Date**: {top_post.get('date', 'Unknown')}\n")
+            response_parts.append(f"• **Post position**: #{top_post.get('global_position', 0)}\n")
+            response_parts.append(f"• **Page**: {top_post.get('page', 0)}\n")
+            
+            # Engagement breakdown
+            response_parts.append(f"\n📊 **Engagement Breakdown:**\n")
+            if top_post.get('upvotes', 0) > 0:
+                response_parts.append(f"• **Upvotes**: {top_post.get('upvotes', 0)}\n")
+            if top_post.get('downvotes', 0) > 0:
+                response_parts.append(f"• **Downvotes**: {top_post.get('downvotes', 0)}\n")
+            if top_post.get('likes', 0) > 0:
+                response_parts.append(f"• **Likes**: {top_post.get('likes', 0)}\n")
+            if top_post.get('reactions', 0) > 0:
+                response_parts.append(f"• **Reactions**: {top_post.get('reactions', 0)}\n")
+            if top_post.get('total_score', 0) > 0:
+                response_parts.append(f"• **Total Score**: {top_post.get('total_score', 0)}\n")
+            
+            # Post link if available
+            post_url = top_post.get('post_url')
+            post_id = top_post.get('post_id')
+            if post_url:
+                response_parts.append(f"• **Direct link**: {post_url}\n")
+            elif post_id:
+                response_parts.append(f"• **Post ID**: {post_id}\n")
+            
+            # Content preview
+            content_preview = top_post.get('content_preview')
+            if content_preview:
+                response_parts.append(f"\n**Content Preview:**\n> {content_preview}\n")
+        
+        # Top 5 summary if multiple results
+        if len(top_5_posts) > 1:
+            response_parts.append(f"\n📋 **Top 5 {metric_name.title()} Posts:**\n")
+            for i, post in enumerate(top_5_posts[:5], 1):
+                response_parts.append(
+                    f"{i}. **{post.get('author', 'Unknown')}** (Score: {post.get('score', 0)}) - "
+                    f"Post #{post.get('global_position', 0)}\n"
+                )
+        
+        # Summary stats
+        response_parts.append(f"\n📈 **Summary:**\n")
+        response_parts.append(f"• **Posts with engagement**: {result.get('total_posts_with_engagement', 0)}\n")
+        response_parts.append(f"• **Total posts analyzed**: {result.get('total_posts_analyzed', 0)}\n")
         
         return ''.join(response_parts)
     
