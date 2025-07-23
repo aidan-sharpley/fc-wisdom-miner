@@ -49,12 +49,14 @@ class ForumScraper:
         }
     
     @monitor_scraping_operation
-    def scrape_thread(self, base_url: str, max_pages: int = 1000) -> Tuple[List[Dict], Dict]:
+    def scrape_thread(self, base_url: str, max_pages: int = 1000, save_html: bool = True, thread_dir: str = None) -> Tuple[List[Dict], Dict]:
         """Scrape an entire forum thread across multiple pages.
         
         Args:
             base_url: Base URL of the thread
             max_pages: Maximum number of pages to scrape
+            save_html: Whether to save raw HTML files for reprocessing
+            thread_dir: Directory to save HTML files (required if save_html=True)
             
         Returns:
             Tuple of (posts_list, metadata_dict)
@@ -69,8 +71,14 @@ class ForumScraper:
             'pages_scraped': 0,
             'total_posts': 0,
             'scrape_timestamp': time.time(),
-            'errors': []
+            'errors': [],
+            'html_files_saved': []
         }
+        
+        # Create HTML directory if saving HTML
+        if save_html and thread_dir:
+            html_dir = os.path.join(thread_dir, 'html_pages')
+            os.makedirs(html_dir, exist_ok=True)
         
         current_url = normalized_url
         page_num = 1
@@ -80,8 +88,13 @@ class ForumScraper:
             try:
                 logger.info(f"Scraping page {page_num}: {current_url}")
                 
+                # Determine HTML file path
+                html_file_path = None
+                if save_html and thread_dir:
+                    html_file_path = os.path.join(html_dir, f"page_{page_num:03d}.html")
+                
                 page_posts, next_url = self._scrape_single_page(
-                    current_url, page_num, global_post_position
+                    current_url, page_num, global_post_position, html_file_path
                 )
                 
                 if page_posts:
@@ -89,6 +102,10 @@ class ForumScraper:
                     global_post_position += len(page_posts)
                     metadata['pages_scraped'] += 1
                     logger.info(f"Page {page_num}: Found {len(page_posts)} posts")
+                    
+                    # Track saved HTML file
+                    if html_file_path and os.path.exists(html_file_path):
+                        metadata['html_files_saved'].append(f"page_{page_num:03d}.html")
                 else:
                     logger.warning(f"Page {page_num}: No posts found")
                 
@@ -118,13 +135,14 @@ class ForumScraper:
         logger.info(f"Thread scrape complete: {len(all_posts)} posts from {metadata['pages_scraped']} pages")
         return all_posts, metadata
     
-    def _scrape_single_page(self, url: str, page_num: int, start_position: int) -> Tuple[List[Dict], Optional[str]]:
+    def _scrape_single_page(self, url: str, page_num: int, start_position: int, html_file_path: str = None) -> Tuple[List[Dict], Optional[str]]:
         """Scrape a single page of a forum thread.
         
         Args:
             url: URL of the page to scrape
             page_num: Page number for reference
             start_position: Starting global post position
+            html_file_path: Optional path to save HTML content
             
         Returns:
             Tuple of (posts_list, next_page_url)
@@ -133,6 +151,15 @@ class ForumScraper:
             response = self._fetch_page(url)
             if not response:
                 return [], None
+            
+            # Save HTML content if requested
+            if html_file_path:
+                try:
+                    with open(html_file_path, 'w', encoding='utf-8') as f:
+                        f.write(response.text)
+                    logger.debug(f"Saved HTML to {html_file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to save HTML to {html_file_path}: {e}")
             
             soup = BeautifulSoup(response.text, 'html.parser')
             posts = self._extract_posts(soup, page_num, start_position)

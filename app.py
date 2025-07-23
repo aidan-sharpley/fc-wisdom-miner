@@ -128,7 +128,7 @@ def ask():
         prompt = data.get("prompt", "").strip()
         url = data.get("url", "").strip()
         existing_thread = data.get("existing_thread", "").strip()
-        refresh = data.get("refresh", False)
+        reprocess = data.get("reprocess", False)  # Changed from "refresh" to "reprocess"
         
         # Validation
         if not prompt:
@@ -137,11 +137,19 @@ def ask():
         if not url and not existing_thread:
             return Response("Error: Either URL or existing thread must be provided", status=400, mimetype="text/plain")
         
+        # When using existing thread, URL should not be provided
+        if existing_thread and url:
+            return Response("Error: Cannot provide URL when using existing thread. Delete and recreate thread to use new URL.", status=400, mimetype="text/plain")
+        
+        # When creating new thread, reprocess should not be provided
+        if url and reprocess:
+            return Response("Error: Cannot reprocess when creating new thread from URL.", status=400, mimetype="text/plain")
+        
         # Validate existing thread key if provided
         if existing_thread and not validate_thread_key(existing_thread):
             return Response("Error: Invalid thread key", status=400, mimetype="text/plain")
         
-        logger.info(f"Processing query: '{prompt[:50]}...' {'(refresh)' if refresh else ''}")
+        logger.info(f"Processing query: '{prompt[:50]}...' {'(reprocess)' if reprocess else ''}")
         
         def generate_response():
             try:
@@ -151,26 +159,39 @@ def ask():
                     
                     # Check if thread exists
                     thread_dir = get_thread_dir(thread_key)
-                    if not os.path.exists(thread_dir) or refresh:
-                        yield f"Error: Thread '{thread_key}' not found or refresh requested but no URL provided.\n"
+                    if not os.path.exists(thread_dir):
+                        yield f"Error: Thread '{thread_key}' not found. Please delete and recreate with URL.\n"
                         return
                     
-                    yield f"Using existing thread: {thread_key}\n"
-                    
-                    # Load processing results
-                    processing_results = {
-                        'thread_key': thread_key,
-                        'from_cache': True
-                    }
+                    # Handle reprocess request
+                    if reprocess:
+                        yield f"Reprocessing existing thread: {thread_key}\n"
+                        yield f"Re-parsing HTML files and rebuilding indexes...\n\n"
+                        
+                        # Reprocess existing thread (no re-download)
+                        thread_key, processing_results = thread_processor.reprocess_existing_thread(thread_key)
+                        
+                        yield f"Thread reprocessed successfully!\n"
+                        yield f"Posts processed: {processing_results.get('posts_count', 0)}\n"
+                    else:
+                        # Use existing thread as-is
+                        yield f"Using existing thread: {thread_key}\n"
+                        
+                        # Load processing results
+                        processing_results = {
+                            'thread_key': thread_key,
+                            'from_cache': True
+                        }
                     
                 else:
-                    # Process new thread from URL
+                    # Process new thread from URL (download + process)
                     normalized_url = normalize_url(url)
-                    yield f"Processing thread from: {normalized_url}\n\n"
+                    yield f"Creating new thread from: {normalized_url}\n"
+                    yield f"Downloading and processing all pages...\n\n"
                     
-                    # Process the thread
+                    # Process the thread (includes downloading)
                     thread_key, processing_results = thread_processor.process_thread(
-                        normalized_url, force_refresh=refresh
+                        normalized_url, force_refresh=False
                     )
                     
                     yield f"Thread processed: {thread_key}\n"

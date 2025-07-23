@@ -6,6 +6,7 @@ of scraping, processing, embedding, and indexing operations.
 """
 
 import logging
+import os
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -62,7 +63,9 @@ class ThreadProcessor:
             
             # Step 2: Scrape the thread
             logger.info(f"Scraping thread from {normalized_url}")
-            raw_posts, scrape_metadata = self.scraper.scrape_thread(normalized_url)
+            raw_posts, scrape_metadata = self.scraper.scrape_thread(
+                normalized_url, save_html=True, thread_dir=thread_dir
+            )
             
             if not raw_posts:
                 raise ValueError("No posts found in thread")
@@ -111,6 +114,221 @@ class ThreadProcessor:
             
         except Exception as e:
             logger.error(f"Error processing thread {thread_key}: {e}")
+            raise
+    
+    def reprocess_existing_thread(self, thread_key: str) -> Tuple[str, Dict]:
+        """Reprocess an existing thread by re-parsing saved HTML files with new optimizations.
+        
+        Args:
+            thread_key: Thread identifier
+            
+        Returns:
+            Tuple of (thread_key, processing_results)
+        """
+        start_time = time.time()
+        thread_dir = get_thread_dir(thread_key)
+        
+        logger.info(f"Reprocessing existing thread from HTML files: {thread_key}")
+        
+        if not os.path.exists(thread_dir):
+            raise ValueError(f"Thread {thread_key} not found")
+        
+        # Check for HTML files
+        html_dir = os.path.join(thread_dir, 'html_pages')
+        if not os.path.exists(html_dir):
+            # Fallback to old method if no HTML files exist
+            logger.warning(f"No HTML files found for {thread_key}, using existing posts data")
+            return self._reprocess_from_posts_json(thread_key)
+        
+        try:
+            # Step 1: Re-parse HTML files to extract raw posts
+            logger.info("Re-parsing saved HTML files")
+            raw_posts = self._reprocess_html_files(html_dir)
+            
+            if not raw_posts:
+                raise ValueError("No posts found in HTML files during reprocessing")
+            
+            logger.info(f"Extracted {len(raw_posts)} raw posts from HTML files")
+            
+            # Step 2: Process posts with current optimizations
+            logger.info(f"Processing posts with current optimizations")
+            processed_posts, processing_stats = self.post_processor.process_posts(raw_posts)
+            
+            if not processed_posts:
+                raise ValueError("No valid posts after processing HTML content")
+            
+            # Step 3: Generate embeddings with current embedding strategy
+            logger.info(f"Generating embeddings for {len(processed_posts)} posts")
+            embeddings = self._generate_embeddings(processed_posts)
+            
+            # Step 4: Build/update search index
+            logger.info("Rebuilding search index")
+            search_index = self._build_search_index(thread_dir, processed_posts, embeddings)
+            
+            # Step 5: Generate analytics with current analytics system
+            logger.info("Regenerating thread analytics")
+            analyzer = ThreadAnalyzer(thread_dir)
+            analytics = analyzer.analyze_thread(processed_posts, force_refresh=True)
+            
+            # Step 6: Save reprocessed data
+            logger.info("Saving reprocessed thread data")
+            
+            # Load existing metadata to preserve scrape info
+            metadata_file = f"{thread_dir}/metadata.json"
+            existing_metadata = safe_read_json(metadata_file) or {}
+            
+            # Update processing stats and reprocessing info
+            existing_metadata.update({
+                'processing_stats': processing_stats,
+                'posts_count': len(processed_posts),
+                'last_updated': time.time(),
+                'last_reprocessed': time.time(),
+                'reprocessing_count': existing_metadata.get('reprocessing_count', 0) + 1,
+                'analytics_generated': time.time()
+            })
+            
+            # Save updated posts and metadata
+            posts_file = f"{thread_dir}/posts.json"
+            atomic_write_json(posts_file, processed_posts)
+            atomic_write_json(metadata_file, existing_metadata)
+            
+            # Update statistics
+            processing_time = time.time() - start_time
+            
+            processing_results = {
+                'posts_count': len(processed_posts),
+                'metadata': existing_metadata,
+                'analytics_summary': analytics.get('summary', {}),
+                'from_cache': False,
+                'reprocessed': True,
+                'processing_time': processing_time,
+                'reprocessing_method': 'html_files'
+            }
+            
+            logger.info(f"Thread reprocessing complete in {processing_time:.2f}s: {len(processed_posts)} posts")
+            return thread_key, processing_results
+            
+        except Exception as e:
+            logger.error(f"Error reprocessing thread {thread_key}: {e}")
+            raise
+    
+    def _reprocess_html_files(self, html_dir: str) -> List[Dict]:
+        """Re-parse HTML files to extract raw posts.
+        
+        Args:
+            html_dir: Directory containing saved HTML files
+            
+        Returns:
+            List of raw post dictionaries
+        """
+        from bs4 import BeautifulSoup
+        import glob
+        
+        all_raw_posts = []
+        
+        # Get all HTML files in order
+        html_files = sorted(glob.glob(os.path.join(html_dir, "page_*.html")))
+        
+        if not html_files:
+            logger.warning(f"No HTML files found in {html_dir}")
+            return []
+        
+        logger.info(f"Found {len(html_files)} HTML files to reprocess")
+        global_post_position = 1
+        
+        for i, html_file in enumerate(html_files):
+            try:
+                page_num = i + 1
+                logger.debug(f"Reprocessing HTML file: {html_file} (page {page_num})")
+                
+                with open(html_file, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                
+                soup = BeautifulSoup(html_content, 'html.parser')
+                posts = self.scraper._extract_posts(soup, page_num, global_post_position)
+                
+                if posts:
+                    all_raw_posts.extend(posts)
+                    global_post_position += len(posts)
+                    logger.debug(f"Extracted {len(posts)} posts from page {page_num}")
+                
+            except Exception as e:
+                logger.error(f"Error reprocessing HTML file {html_file}: {e}")
+                continue
+        
+        logger.info(f"Reprocessed HTML files: extracted {len(all_raw_posts)} raw posts")
+        return all_raw_posts
+    
+    def _reprocess_from_posts_json(self, thread_key: str) -> Tuple[str, Dict]:
+        """Fallback method: reprocess from existing posts.json for older threads.
+        
+        Args:
+            thread_key: Thread identifier
+            
+        Returns:
+            Tuple of (thread_key, processing_results)
+        """
+        start_time = time.time()
+        thread_dir = get_thread_dir(thread_key)
+        
+        logger.info(f"Fallback reprocessing from posts.json: {thread_key}")
+        
+        try:
+            # Load existing posts data
+            posts_file = f"{thread_dir}/posts.json"
+            if not os.path.exists(posts_file):
+                raise ValueError(f"No posts data found for thread {thread_key}")
+            
+            posts = safe_read_json(posts_file)
+            if not posts:
+                raise ValueError(f"No valid posts data found for thread {thread_key}")
+            
+            logger.info(f"Reprocessing {len(posts)} existing posts")
+            
+            # Step 1: Generate fresh embeddings
+            logger.info(f"Regenerating embeddings for {len(posts)} posts")
+            embeddings = self._generate_embeddings(posts)
+            
+            # Step 2: Rebuild search index
+            logger.info("Rebuilding search index")
+            search_index = self._build_search_index(thread_dir, posts, embeddings)
+            
+            # Step 3: Regenerate analytics
+            logger.info("Regenerating thread analytics")
+            analyzer = ThreadAnalyzer(thread_dir)
+            analytics = analyzer.analyze_thread(posts, force_refresh=True)
+            
+            # Step 4: Update metadata
+            logger.info("Updating thread metadata")
+            metadata_file = f"{thread_dir}/metadata.json"
+            existing_metadata = safe_read_json(metadata_file) or {}
+            
+            # Update with reprocessing info
+            existing_metadata.update({
+                'last_reprocessed': time.time(),
+                'reprocessing_count': existing_metadata.get('reprocessing_count', 0) + 1
+            })
+            
+            atomic_write_json(metadata_file, existing_metadata)
+            
+            # Update statistics
+            processing_time = time.time() - start_time
+            
+            processing_results = {
+                'posts_count': len(posts),
+                'metadata': existing_metadata,
+                'analytics_summary': analytics.get('summary', {}),
+                'from_cache': False,
+                'reprocessed': True,
+                'processing_time': processing_time,
+                'reprocessing_method': 'posts_json_fallback'
+            }
+            
+            logger.info(f"Fallback reprocessing complete in {processing_time:.2f}s: {len(posts)} posts")
+            return thread_key, processing_results
+            
+        except Exception as e:
+            logger.error(f"Error in fallback reprocessing for thread {thread_key}: {e}")
             raise
     
     def _generate_thread_key(self, url: str) -> str:

@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 
 import requests
 
+from analytics.data_analyzer import ForumDataAnalyzer
 from analytics.query_analytics import ConversationalQueryProcessor
 from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
@@ -30,6 +31,7 @@ class QueryProcessor:
         self.thread_dir = thread_dir
         self.search_engine = SemanticSearchEngine(thread_dir)
         self.query_analyzer = ConversationalQueryProcessor()
+        self.data_analyzer = ForumDataAnalyzer(thread_dir)
         
         # LLM configuration
         self.chat_url = f"{OLLAMA_BASE_URL}/api/chat"
@@ -61,22 +63,62 @@ class QueryProcessor:
         try:
             # Step 1: Analyze the query
             query_analysis = self.query_analyzer.analyze_conversational_query(query)
+            analytical_intent = query_analysis.get('analytical_intent', [])
             
-            # Step 2: Perform semantic search
+            # Step 2: Check if this can be handled with direct data analysis
+            if self.data_analyzer.can_handle_query(query, analytical_intent):
+                logger.info("Routing query to analytical data processor")
+                analytical_result = self.data_analyzer.analyze_query(query, analytical_intent)
+                
+                if 'error' not in analytical_result:
+                    # Generate response from analytical data
+                    if stream:
+                        response_generator = self._generate_analytical_response_stream(analytical_result)
+                        return {
+                            'query': query,
+                            'analysis': query_analysis,
+                            'analytical_result': analytical_result,
+                            'context_posts': analytical_result.get('thread_stats', {}).get('total_posts', 0),
+                            'response_stream': response_generator,
+                            'processing_time': time.time() - start_time,
+                            'query_type': 'analytical'
+                        }
+                    else:
+                        response_text = self._generate_analytical_response_text(analytical_result)
+                        processing_time = time.time() - start_time
+                        
+                        # Update statistics
+                        self.stats['total_queries'] += 1
+                        self.stats['total_response_time'] += processing_time
+                        self.stats['average_response_time'] = (
+                            self.stats['total_response_time'] / self.stats['total_queries']
+                        )
+                        
+                        return {
+                            'query': query,
+                            'analysis': query_analysis,
+                            'analytical_result': analytical_result,
+                            'response': response_text,
+                            'processing_time': processing_time,
+                            'query_type': 'analytical'
+                        }
+            
+            # Step 3: Fallback to semantic search for non-analytical queries
+            logger.info("Routing query to semantic search engine")
             search_results, search_metadata = self.search_engine.search(
                 query, 
                 top_k=query_analysis.get('suggested_approach') == 'comprehensive' and 15 or 10
             )
             
-            # Step 3: Build context
+            # Step 4: Build context
             context = self._build_context(search_results, query_analysis)
             
-            # Step 4: Generate enhanced prompt
+            # Step 5: Generate enhanced prompt
             enhanced_prompt = self.query_analyzer.generate_analytical_prompt(
                 query, query_analysis, context
             )
             
-            # Step 5: Get LLM response
+            # Step 6: Get LLM response
             if stream:
                 response_generator = self._get_streaming_response(enhanced_prompt)
                 return {
@@ -85,7 +127,8 @@ class QueryProcessor:
                     'search_metadata': search_metadata,
                     'context_posts': len(search_results),
                     'response_stream': response_generator,
-                    'processing_time': time.time() - start_time
+                    'processing_time': time.time() - start_time,
+                    'query_type': 'semantic'
                 }
             else:
                 response_text = self._get_complete_response(enhanced_prompt)
@@ -337,6 +380,161 @@ class QueryProcessor:
             ),
             'search_engine_stats': self.search_engine.get_stats()
         }
+    
+    def _generate_analytical_response_stream(self, analytical_result: Dict):
+        """Generate streaming response from analytical results.
+        
+        Args:
+            analytical_result: Results from analytical data processing
+            
+        Yields:
+            Response chunks
+        """
+        response_text = self._generate_analytical_response_text(analytical_result)
+        
+        # Yield the response in chunks to simulate streaming
+        words = response_text.split()
+        chunk_size = 5  # Words per chunk
+        
+        for i in range(0, len(words), chunk_size):
+            chunk = ' '.join(words[i:i+chunk_size])
+            if i + chunk_size < len(words):
+                chunk += ' '
+            yield chunk
+            time.sleep(0.05)  # Small delay for streaming effect
+    
+    def _generate_analytical_response_text(self, analytical_result: Dict) -> str:
+        """Generate response text from analytical results.
+        
+        Args:
+            analytical_result: Results from analytical data processing
+            
+        Returns:
+            Formatted response text
+        """
+        result_type = analytical_result.get('type', 'unknown')
+        
+        if result_type == 'participant_analysis':
+            return self._format_participant_analysis(analytical_result)
+        elif result_type == 'content_statistics':
+            return self._format_content_statistics(analytical_result)
+        elif result_type == 'temporal_analysis':
+            return self._format_temporal_analysis(analytical_result)
+        else:
+            return f"Analysis complete. Result type: {result_type}"
+    
+    def _format_participant_analysis(self, result: Dict) -> str:
+        """Format participant analysis results."""
+        most_active = result.get('most_active_author', {})
+        top_authors = result.get('top_authors', [])
+        thread_stats = result.get('thread_stats', {})
+        
+        response_parts = []
+        
+        # Main answer
+        if most_active.get('name'):
+            response_parts.append(
+                f"**{most_active['name']}** is the most active user in this thread.\n"
+            )
+            
+            response_parts.append(
+                f"• **Post count**: {most_active['post_count']} posts "
+                f"({most_active.get('percentage', 0):.1f}% of all posts)\n"
+            )
+            
+            if most_active.get('total_score', 0) > 0:
+                response_parts.append(
+                    f"• **Community engagement**: {most_active['total_score']} total upvotes/reactions\n"
+                )
+        
+        # Thread context
+        if thread_stats:
+            response_parts.append(
+                f"\n**Thread Overview:**\n"
+                f"• Total posts: {thread_stats.get('total_posts', 0)}\n"
+                f"• Unique participants: {thread_stats.get('unique_authors', 0)}\n"
+                f"• Average posts per participant: {thread_stats.get('average_posts_per_author', 0)}\n"
+            )
+        
+        # Top contributors
+        if len(top_authors) > 1:
+            response_parts.append("\n**Top 5 Contributors:**\n")
+            for i, author in enumerate(top_authors[:5], 1):
+                response_parts.append(
+                    f"{i}. **{author['name']}**: {author['post_count']} posts "
+                    f"({author.get('percentage', 0):.1f}%)\n"
+                )
+        
+        response_parts.append(
+            f"\n*This analysis is based on the complete thread data "
+            f"({thread_stats.get('total_posts', 0)} posts analyzed).*"
+        )
+        
+        return ''.join(response_parts)
+    
+    def _format_content_statistics(self, result: Dict) -> str:
+        """Format content statistics results."""
+        post_stats = result.get('post_statistics', {})
+        page_dist = result.get('page_distribution', {})
+        temporal = result.get('temporal_coverage', {})
+        
+        response_parts = []
+        
+        response_parts.append("**Thread Content Statistics:**\n\n")
+        
+        # Basic stats
+        response_parts.append(
+            f"• **Total posts**: {post_stats.get('total_posts', 0)}\n"
+            f"• **Average post length**: {post_stats.get('average_length', 0)} characters\n"
+            f"• **Average word count**: {post_stats.get('average_word_count', 0)} words\n"
+        )
+        
+        # Page distribution
+        if page_dist.get('total_pages'):
+            response_parts.append(
+                f"• **Thread spans**: {page_dist['total_pages']} pages\n"
+            )
+        
+        # Temporal coverage
+        if temporal.get('date_coverage_percentage'):
+            response_parts.append(
+                f"• **Posts with timestamps**: {temporal['posts_with_dates']} "
+                f"({temporal.get('date_coverage_percentage', 0):.1f}%)\n"
+            )
+        
+        return ''.join(response_parts)
+    
+    def _format_temporal_analysis(self, result: Dict) -> str:
+        """Format temporal analysis results."""
+        timeline = result.get('thread_timeline', {})
+        activity = result.get('activity_pattern', {})
+        
+        response_parts = []
+        
+        response_parts.append("**Thread Timeline Analysis:**\n\n")
+        
+        if timeline:
+            response_parts.append(
+                f"• **First post**: {timeline.get('first_post', 'Unknown')}\n"
+                f"• **Last post**: {timeline.get('last_post', 'Unknown')}\n"
+                f"• **Thread duration**: {timeline.get('duration_days', 0)} days\n"
+                f"• **Posts with dates**: {timeline.get('posts_with_dates', 0)}\n"
+            )
+        
+        if activity:
+            most_active_month = activity.get('most_active_month')
+            if most_active_month:
+                response_parts.append(
+                    f"• **Most active month**: {most_active_month[0]} ({most_active_month[1]} posts)\n"
+                )
+            
+            avg_per_day = activity.get('average_posts_per_day', 0)
+            if avg_per_day > 0:
+                response_parts.append(
+                    f"• **Average activity**: {avg_per_day:.1f} posts per day\n"
+                )
+        
+        return ''.join(response_parts)
 
 
 __all__ = ['QueryProcessor']
