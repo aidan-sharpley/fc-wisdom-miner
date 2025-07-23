@@ -15,16 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 def clean_post_content(raw: str) -> str:
-    """Clean HTML and forum-specific formatting from post content.
+    """Enhanced cleaning of HTML and forum-specific formatting from post content.
     
     This function removes HTML tags, forum-specific patterns, and normalizes
-    whitespace to produce clean text suitable for embedding and analysis.
+    whitespace while preserving important technical information and structure.
     
     Args:
         raw: Raw HTML content from forum post
         
     Returns:
-        Cleaned text content
+        Cleaned text content optimized for vape/device discussions
     """
     if not raw:
         return ""
@@ -36,28 +36,250 @@ def clean_post_content(raw: str) -> str:
         for script in soup(["script", "style", "noscript"]):
             script.decompose()
 
-        # Remove quote blocks to avoid duplication
+        # Preserve important technical information before removing elements
+        preserved_info = _extract_technical_info(soup)
+
+        # Remove quote blocks but preserve quoted technical specs
         for quote in soup.select('.quote, .quotebox, blockquote'):
+            quote_text = quote.get_text().strip()
+            # Preserve if it contains technical specifications
+            if _contains_technical_specs(quote_text):
+                preserved_info.append(f"Referenced: {quote_text[:200]}")
             quote.decompose()
 
-        # Remove signature blocks
+        # Remove signature blocks but preserve contact/shop info
         for sig in soup.select('.signature, .sig, .postbit_signature'):
+            sig_text = sig.get_text().strip()
+            # Preserve business/contact information
+            if any(keyword in sig_text.lower() for keyword in ['shop', 'store', 'contact', 'website']):
+                preserved_info.append(f"Contact: {sig_text[:100]}")
             sig.decompose()
 
-        # Get text content
-        text = soup.get_text()
+        # Enhanced content extraction with formatting preservation
+        text = _extract_structured_content(soup)
 
-        # Clean up forum-specific patterns
-        text = _clean_forum_patterns(text)
+        # Add back preserved technical information
+        if preserved_info:
+            text += "\n\n" + "\n".join(preserved_info)
+
+        # Clean up forum-specific patterns while preserving technical terms
+        text = _clean_forum_patterns_enhanced(text)
         
-        # Normalize whitespace
-        text = _normalize_whitespace(text)
+        # Enhanced whitespace normalization
+        text = _normalize_whitespace_enhanced(text)
         
         return text.strip()
         
     except Exception as e:
         logger.warning(f"Error cleaning post content: {e}")
         return str(raw)[:1000]  # Fallback to truncated raw content
+
+
+def _extract_technical_info(soup: BeautifulSoup) -> List[str]:
+    """Extract technical information before removing elements.
+    
+    Args:
+        soup: BeautifulSoup object
+        
+    Returns:
+        List of preserved technical information
+    """
+    preserved = []
+    
+    # Extract from tables (often contain specs)
+    for table in soup.find_all('table'):
+        table_text = table.get_text().strip()
+        if _contains_technical_specs(table_text):
+            preserved.append(f"Specs: {table_text}")
+    
+    # Extract from code blocks (settings, commands)
+    for code in soup.find_all(['code', 'pre']):
+        code_text = code.get_text().strip()
+        if code_text and len(code_text) < 200:
+            preserved.append(f"Code: {code_text}")
+    
+    # Extract from emphasized technical terms
+    for elem in soup.find_all(['strong', 'b', 'em', 'i']):
+        text = elem.get_text().strip()
+        if _is_technical_term(text):
+            preserved.append(f"Important: {text}")
+    
+    return preserved
+
+
+def _contains_technical_specs(text: str) -> bool:
+    """Check if text contains technical specifications.
+    
+    Args:
+        text: Text to check
+        
+    Returns:
+        True if contains technical specs
+    """
+    if not text:
+        return False
+    
+    text_lower = text.lower()
+    
+    # Technical indicators for vape/device forums
+    technical_keywords = [
+        'watt', 'volt', 'ohm', 'resistance', 'temperature', 'celsius', 'fahrenheit',
+        'coil', 'battery', 'mah', 'mod', 'tank', 'atomizer', 'vg', 'pg', 'nicotine',
+        'mesh', 'ceramic', 'kanthal', 'stainless', 'titanium', 'tcr', 'wattage',
+        'amperage', 'voltage', 'herb', 'concentrate', 'dry', 'convection', 'conduction'
+    ]
+    
+    # Units and measurements
+    units = ['°c', '°f', 'w', 'v', 'ω', 'a', 'ml', 'g', 'mg', 'ppm']
+    
+    # Check for technical keywords
+    keyword_count = sum(1 for keyword in technical_keywords if keyword in text_lower)
+    unit_count = sum(1 for unit in units if unit in text_lower)
+    
+    # Check for numeric values with units
+    import re
+    numeric_specs = len(re.findall(r'\d+\s*(?:w|v|ohm|ω|°[cf]|ml|g|mg)', text_lower))
+    
+    return keyword_count >= 2 or unit_count >= 1 or numeric_specs >= 1
+
+
+def _is_technical_term(text: str) -> bool:
+    """Check if text is a technical term worth preserving.
+    
+    Args:
+        text: Text to check
+        
+    Returns:
+        True if it's a technical term
+    """
+    if not text or len(text) < 3 or len(text) > 50:
+        return False
+    
+    text_lower = text.lower().strip()
+    
+    # Device names and brands
+    brands = ['dynavap', 'storz', 'bickel', 'arizer', 'pax', 'davinci', 'vapir', 'volcano']
+    models = ['mighty', 'crafty', 'solo', 'air', 'pax3', 'iq', 'ghost', 'firefly']
+    
+    # Technical terms
+    tech_terms = [
+        'convection', 'conduction', 'hybrid', 'dosing', 'capsule', 'chamber',
+        'mouthpiece', 'stem', 'cooling', 'unit', 'heating', 'element'
+    ]
+    
+    return (text_lower in brands or text_lower in models or text_lower in tech_terms or
+            _contains_technical_specs(text))
+
+
+def _extract_structured_content(soup: BeautifulSoup) -> str:
+    """Extract content while preserving important structure.
+    
+    Args:
+        soup: BeautifulSoup object
+        
+    Returns:
+        Structured text content
+    """
+    content_parts = []
+    
+    # Process paragraphs and divs in order
+    for elem in soup.find_all(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+        text = elem.get_text().strip()
+        if text and len(text) > 10:
+            # Add extra spacing for headers
+            if elem.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                content_parts.append(f"\n{text}\n")
+            else:
+                content_parts.append(text)
+    
+    # If no structured content found, fallback to all text
+    if not content_parts:
+        return soup.get_text()
+    
+    return "\n".join(content_parts)
+
+
+def _clean_forum_patterns_enhanced(text: str) -> str:
+    """Enhanced cleaning of forum-specific text patterns while preserving technical info.
+    
+    Args:
+        text: Text to clean
+        
+    Returns:
+        Cleaned text
+    """
+    # Remove quote attribution patterns but preserve technical quotes
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        line_lower = line.lower().strip()
+        
+        # Skip quote attribution lines unless they contain technical info
+        if any(pattern in line_lower for pattern in ['said:', 'posted:', 'wrote:']):
+            if not _contains_technical_specs(line):
+                continue
+        
+        # Skip edit notices unless they mention important changes
+        if line_lower.startswith('edit:') or 'last edited' in line_lower:
+            if not any(keyword in line_lower for keyword in ['temperature', 'setting', 'correction', 'update']):
+                continue
+        
+        # Preserve the line
+        cleaned_lines.append(line)
+    
+    text = '\n'.join(cleaned_lines)
+    
+    # Remove click to expand but preserve context
+    text = re.sub(r"Click to expand\.{3}", "", text)
+    text = re.sub(r"Show/Hide\s+", "", text)
+    
+    # Remove navigation elements
+    text = re.sub(r"Page \d+ of \d+", "", text)
+    text = re.sub(r"Jump to page:", "", text)
+    text = re.sub(r"Quick Reply", "", text)
+    
+    # Clean up reaction patterns but preserve meaningful feedback
+    text = re.sub(r"Like\s*\|\s*Dislike", "", text)
+    text = re.sub(r"Thanks\s*\|\s*Reply(?!\s+with)", "", text)  # Keep "Reply with quote" context
+    
+    return text
+
+
+def _normalize_whitespace_enhanced(text: str) -> str:
+    """Enhanced whitespace normalization that preserves technical formatting.
+    
+    Args:
+        text: Text to normalize
+        
+    Returns:
+        Normalized text
+    """
+    # Preserve technical specifications formatting
+    lines = text.split('\n')
+    normalized_lines = []
+    
+    for line in lines:
+        # Preserve indentation for technical specs or lists
+        if (line.strip() and 
+            (line.startswith('  ') or line.startswith('\t') or
+             _contains_technical_specs(line) or
+             any(char in line for char in ['•', '-', '*', '1.', '2.', '3.']))):
+            # Minimal cleanup for technical content
+            normalized_lines.append(re.sub(r'[\t ]+', ' ', line.rstrip()))
+        else:
+            # Standard cleanup for regular text
+            normalized_lines.append(line.strip())
+    
+    text = '\n'.join(line for line in normalized_lines if line)
+    
+    # Convert multiple spaces to single space, but preserve technical formatting
+    text = re.sub(r' {3,}', ' ', text)  # Only collapse 3+ spaces
+    
+    # Limit consecutive newlines but allow more for technical sections
+    text = re.sub(r'\n{4,}', '\n\n\n', text)
+    
+    return text
 
 
 def _clean_forum_patterns(text: str) -> str:

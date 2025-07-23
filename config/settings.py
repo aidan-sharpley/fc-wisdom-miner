@@ -127,6 +127,31 @@ AUTHOR_SELECTORS = [
 # Date extraction selectors
 DATE_SELECTORS = ["time[datetime]", ".message-date time", ".postDate", "[data-time]"]
 
+# Vote/reaction extraction selectors for different forum platforms
+VOTE_SELECTORS = {
+    'upvotes': [
+        '.message-reaction-score[data-reaction="1"]',  # XenForo likes
+        '.like-count', '.upvote-count', '.positive-count',
+        '.reaction-score .positive', '[data-score]',
+        '.vote-up .count', '.thumbs-up .count'
+    ],
+    'downvotes': [
+        '.message-reaction-score[data-reaction="-1"]',  # XenForo dislikes
+        '.dislike-count', '.downvote-count', '.negative-count',
+        '.reaction-score .negative', '.vote-down .count',
+        '.thumbs-down .count'
+    ],
+    'likes': [
+        '.like-button .count', '.likes .count', '.heart .count',
+        '.message-reaction[data-reaction="Like"] .count',
+        '.likes-received', '[data-likes]'
+    ],
+    'reactions': [
+        '.message-reactionSummary .count', '.reaction-count',
+        '.total-reactions', '.emoji-count', '.reaction-bar .count'
+    ]
+}
+
 # ==================== Enhanced Query Processing ====================
 
 # Query analysis confidence thresholds
@@ -246,6 +271,7 @@ __all__ = [
     "CONTENT_SELECTORS",
     "AUTHOR_SELECTORS",
     "DATE_SELECTORS",
+    "VOTE_SELECTORS",
     # Query processing
     "ANALYTICAL_QUERY_PATTERNS",
     "MIN_INTENT_CONFIDENCE",

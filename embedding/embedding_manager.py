@@ -17,8 +17,11 @@ from config.settings import (
     EMBEDDING_MAX_RETRIES,
     OLLAMA_BASE_URL,
     OLLAMA_EMBED_MODEL,
+    BASE_TMP_DIR,
 )
+from utils.advanced_cache import ContentBasedCache
 from utils.helpers import hash_text
+from utils.monitoring import monitor_embedding_operation
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +40,11 @@ class EmbeddingManager:
         self.base_url = base_url or OLLAMA_BASE_URL
         self.embed_url = f"{self.base_url}/api/embeddings"
 
-        # Cache for embeddings
-        self._cache = {}
+        # Advanced cache for embeddings
+        cache_dir = f"{BASE_TMP_DIR}/embeddings_cache"
+        self.cache = ContentBasedCache(cache_dir, max_size_mb=200)
+        
+        # Legacy cache tracking for compatibility
         self._cache_hits = 0
         self._cache_misses = 0
 
@@ -51,14 +57,17 @@ class EmbeddingManager:
             "cache_hit_rate": 0,
         }
 
+    @monitor_embedding_operation
     def get_embeddings(
-        self, texts: Union[str, List[str]], use_cache: bool = True
+        self, texts: Union[str, List[str]], use_cache: bool = True, 
+        preprocess: bool = True
     ) -> Union[np.ndarray, List[np.ndarray]]:
-        """Get embeddings for one or more texts.
+        """Get embeddings for one or more texts with optional preprocessing.
 
         Args:
             texts: Single text string or list of text strings
             use_cache: Whether to use cached embeddings
+            preprocess: Whether to apply domain-specific preprocessing
 
         Returns:
             Single embedding array or list of embedding arrays
@@ -67,6 +76,10 @@ class EmbeddingManager:
         if is_single:
             texts = [texts]
 
+        # Apply domain-specific preprocessing
+        if preprocess:
+            texts = [self._preprocess_for_embedding(text) for text in texts]
+
         embeddings = []
         uncached_texts = []
         uncached_indices = []
@@ -74,7 +87,11 @@ class EmbeddingManager:
         # Check cache first
         for i, text in enumerate(texts):
             if use_cache:
-                cached_embedding = self._get_cached_embedding(text)
+                # Generate content hash for cache validation
+                content_hash = hash_text(text)
+                cache_key = f"embedding:{self.model}:{content_hash}"
+                
+                cached_embedding = self.cache.get(cache_key, content_hash)
                 if cached_embedding is not None:
                     embeddings.append(cached_embedding)
                     self._cache_hits += 1
@@ -98,9 +115,11 @@ class EmbeddingManager:
             for idx, embedding in zip(uncached_indices, new_embeddings):
                 embeddings[idx] = embedding
                 if use_cache:
-                    self._cache_embedding(
-                        uncached_texts[uncached_indices.index(idx)], embedding
-                    )
+                    # Cache with advanced cache system
+                    text = uncached_texts[uncached_indices.index(idx)]
+                    content_hash = hash_text(text)
+                    cache_key = f"embedding:{self.model}:{content_hash}"
+                    self.cache.set(cache_key, embedding, content_hash, ttl_hours=168)  # 1 week
 
         # Update statistics
         self._update_stats()
@@ -173,34 +192,14 @@ class EmbeddingManager:
 
         return embeddings
 
-    def _get_cached_embedding(self, text: str) -> Optional[np.ndarray]:
-        """Get embedding from cache if available.
-
+    def invalidate_cache_for_content(self, content_hash: str):
+        """Invalidate cache entries for specific content.
+        
         Args:
-            text: Text to look up
-
-        Returns:
-            Cached embedding or None
+            content_hash: Content hash to invalidate
         """
-        text_hash = hash_text(text)
-        return self._cache.get(text_hash)
-
-    def _cache_embedding(self, text: str, embedding: np.ndarray):
-        """Cache an embedding.
-
-        Args:
-            text: Original text
-            embedding: Embedding array to cache
-        """
-        text_hash = hash_text(text)
-
-        # Simple LRU-like cache management
-        if len(self._cache) >= EMBEDDING_CACHE_SIZE:
-            # Remove oldest entry (this is simplified - could use proper LRU)
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
-
-        self._cache[text_hash] = embedding
+        cache_key = f"embedding:{self.model}:{content_hash}"
+        self.cache.invalidate(cache_key)
 
     def _update_stats(self):
         """Update internal statistics."""
@@ -237,46 +236,213 @@ class EmbeddingManager:
         return hyde_embedding
 
     def _create_hyde_prompt(self, query: str, context: str = "") -> str:
-        """Create a hypothetical document prompt for HyDE.
+        """Create an enhanced hypothetical document prompt for HyDE optimized for vape/device forums.
 
         Args:
             query: User query
             context: Optional context
 
         Returns:
-            Hypothetical document text
+            Hypothetical document text optimized for device discussions
         """
-        # Create a hypothetical answer to the query
+        # Enhanced HyDE template for device/vape forums
+        query_lower = query.lower()
+        
+        # Device-specific enhancements
+        if any(term in query_lower for term in ['temperature', 'temp', 'heat', 'celsius', 'fahrenheit']):
+            tech_context = "The discussion would include specific temperature settings, heating techniques, and temperature-related performance characteristics. Users would share their preferred temperature ranges and explain the effects of different heat settings."
+        elif any(term in query_lower for term in ['battery', 'charge', 'power', 'voltage', 'watt']):
+            tech_context = "The conversation would cover battery life, charging methods, power settings, and electrical specifications. Participants would discuss wattage recommendations and battery performance optimization."
+        elif any(term in query_lower for term in ['coil', 'resistance', 'ohm', 'mesh', 'ceramic']):
+            tech_context = "The discussion would focus on coil types, resistance values, material properties, and performance characteristics. Users would share experiences with different coil configurations and materials."
+        elif any(term in query_lower for term in ['latest', 'new', 'recent', 'popular', 'best']):
+            tech_context = "The thread would include recent developments, newest products, popular techniques, and current community preferences. Users would share up-to-date information and trending approaches."
+        else:
+            tech_context = "The discussion would include technical specifications, user experiences, troubleshooting tips, and practical advice from experienced community members."
+        
+        # Create enhanced hypothetical document
         hyde_template = f"""
-        Question: {query}
+        Forum Discussion Topic: {query}
         
-        A comprehensive answer to this question would include:
+        {tech_context}
         
-        The main points discussed in the forum thread would cover various perspectives and opinions from different participants. The discussion would likely include specific examples, detailed explanations, and personal experiences shared by community members.
-        
-        Key insights would emerge from the collective knowledge and diverse viewpoints presented throughout the conversation. The most relevant information would address the core aspects of the question while providing practical context and actionable insights.
+        Community members would share detailed experiences including:
+        - Specific settings and configurations that work well
+        - Comparisons between different options or approaches  
+        - Technical explanations of why certain methods are effective
+        - Personal recommendations based on actual usage
+        - Troubleshooting common issues and solutions
+        - Links to relevant resources or additional information
         
         {context}
         
-        The discussion would conclude with a synthesis of the main themes and takeaways that directly address the original question.
+        The most upvoted and recent posts would provide the most valuable insights, with experienced users sharing their proven techniques and newer community members asking clarifying questions. The discussion would evolve to cover both basic concepts and advanced techniques.
         """
 
         return hyde_template.strip()
 
+    def _preprocess_for_embedding(self, text: str) -> str:
+        """Apply domain-specific preprocessing to optimize embeddings for vape/device content.
+        
+        Args:
+            text: Original text
+            
+        Returns:
+            Preprocessed text optimized for embedding
+        """
+        if not text:
+            return text
+            
+        # Normalize technical terms and abbreviations
+        text = self._normalize_technical_terms(text)
+        
+        # Enhance context for technical specifications
+        text = self._enhance_technical_context(text)
+        
+        # Normalize units and measurements
+        text = self._normalize_units(text)
+        
+        return text
+    
+    def _normalize_technical_terms(self, text: str) -> str:
+        """Normalize technical terms and brand names for better semantic matching.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Text with normalized technical terms
+        """
+        import re
+        
+        # Common technical term normalizations for vape/device forums
+        normalizations = {
+            # Temperature variants
+            r'\b(?:temp|temps)\b': 'temperature',
+            r'\b(?:°c|celsius)\b': 'degrees celsius',
+            r'\b(?:°f|fahrenheit)\b': 'degrees fahrenheit',
+            
+            # Power/electrical terms
+            r'\b(?:watts?|w)\b': 'wattage',
+            r'\b(?:volts?|v)\b': 'voltage',
+            r'\b(?:ohms?|ω)\b': 'resistance ohms',
+            r'\b(?:amps?|a)\b': 'amperage',
+            r'\bmah\b': 'milliamp hours',
+            
+            # Device components
+            r'\b(?:atomizer|atty)\b': 'atomizer tank',
+            r'\b(?:mod|device)\b': 'vaporizer device',
+            r'\b(?:coils?)\b': 'heating coil',
+            r'\b(?:tanks?)\b': 'liquid tank',
+            
+            # Materials
+            r'\b(?:ss|stainless)\b': 'stainless steel',
+            r'\b(?:kanthal|ni80)\b': 'heating wire',
+            r'\bmesh\b': 'mesh coil',
+            
+            # Vaping specific
+            r'\b(?:vg|vegetable glycerin)\b': 'vegetable glycerin',
+            r'\b(?:pg|propylene glycol)\b': 'propylene glycol',
+            r'\b(?:nic|nicotine)\b': 'nicotine',
+            
+            # Device types
+            r'\b(?:dry herb|flower)\b': 'dry herb vaporizer',
+            r'\b(?:concentrate|dab|wax)\b': 'concentrate vaporizer',
+            r'\b(?:convection|conduction)\b': 'heating method',
+        }
+        
+        for pattern, replacement in normalizations.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        
+        return text
+    
+    def _enhance_technical_context(self, text: str) -> str:
+        """Add contextual information to technical specifications for better embedding.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Text with enhanced technical context
+        """
+        import re
+        
+        # Add context to isolated numbers/specs
+        enhancements = []
+        
+        # Temperature specifications
+        temp_matches = re.findall(r'(\d+)\s*(?:°?[cf]|celsius|fahrenheit)', text, re.IGNORECASE)
+        if temp_matches:
+            enhancements.append("temperature settings heating specifications")
+        
+        # Wattage specifications  
+        watt_matches = re.findall(r'(\d+)\s*(?:w|watts?|wattage)', text, re.IGNORECASE)
+        if watt_matches:
+            enhancements.append("power consumption wattage settings")
+        
+        # Resistance specifications
+        ohm_matches = re.findall(r'(\d+\.?\d*)\s*(?:ohms?|ω|resistance)', text, re.IGNORECASE)
+        if ohm_matches:
+            enhancements.append("coil resistance electrical specifications")
+        
+        # Battery specifications
+        if re.search(r'(\d+)\s*mah', text, re.IGNORECASE):
+            enhancements.append("battery capacity power specifications")
+        
+        # Volume specifications
+        if re.search(r'(\d+)\s*ml', text, re.IGNORECASE):
+            enhancements.append("liquid capacity tank volume")
+        
+        # Add enhancements to text
+        if enhancements:
+            text += " " + " ".join(enhancements)
+        
+        return text
+    
+    def _normalize_units(self, text: str) -> str:
+        """Normalize unit representations for consistent embedding.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Text with normalized units
+        """
+        import re
+        
+        # Normalize common unit representations
+        unit_normalizations = {
+            r'(\d+)\s*°?c\b': r'\1 degrees celsius',
+            r'(\d+)\s*°?f\b': r'\1 degrees fahrenheit', 
+            r'(\d+)\s*w\b': r'\1 watts',
+            r'(\d+\.?\d*)\s*ω\b': r'\1 ohms',
+            r'(\d+)\s*v\b': r'\1 volts',
+            r'(\d+)\s*a\b': r'\1 amps',
+            r'(\d+)\s*ml\b': r'\1 milliliters',
+            r'(\d+)\s*g\b': r'\1 grams',
+            r'(\d+)\s*mg\b': r'\1 milligrams',
+        }
+        
+        for pattern, replacement in unit_normalizations.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        
+        return text
+
     def clear_cache(self):
         """Clear the embedding cache."""
-        self._cache.clear()
+        self.cache.clear()
         self._cache_hits = 0
         self._cache_misses = 0
         logger.info("Embedding cache cleared")
 
     def get_stats(self) -> Dict:
         """Get embedding manager statistics."""
+        cache_stats = self.cache.get_stats()
         return {
             **self.stats,
-            "cache_size": len(self._cache),
             "cache_hits": self._cache_hits,
             "cache_misses": self._cache_misses,
+            "advanced_cache_stats": cache_stats,
         }
 
     def get_embedding_dimension(self) -> int:

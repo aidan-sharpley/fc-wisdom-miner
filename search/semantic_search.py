@@ -14,7 +14,9 @@ import numpy as np
 from analytics.query_analytics import AnalyticalSearchStrategy, ConversationalQueryProcessor
 from embedding.embedding_manager import EmbeddingManager
 from embedding.hnsw_index import HNSWIndex
+from search.result_ranker import ContextualRanker
 from utils.file_utils import safe_read_json
+from utils.monitoring import monitor_search_operation, get_query_analytics
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ class SemanticSearchEngine:
             'reranked_searches': 0
         }
     
+    @monitor_search_operation
     def search(self, query: str, top_k: int = 7, use_hyde: bool = True, 
                rerank: bool = True) -> Tuple[List[Dict], Dict]:
         """Perform semantic search on the thread.
@@ -95,10 +98,12 @@ class SemanticSearchEngine:
             # Step 5: Retrieve full post data
             raw_results = self._retrieve_posts(post_hashes, distances)
             
-            # Step 6: Rerank if requested
+            # Step 6: Advanced reranking with comprehensive scoring
             if effective_rerank and len(raw_results) > 1:
-                reranked_results = self._rerank_results(query, raw_results, query_analysis)
+                ranker = ContextualRanker(self.thread_analytics, query_analysis)
+                reranked_results = ranker.rank_results(raw_results, query)
                 self.stats['reranked_searches'] += 1
+                logger.info(f"Advanced reranking applied with contextual scoring")
             else:
                 reranked_results = raw_results
             
