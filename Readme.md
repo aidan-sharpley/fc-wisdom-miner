@@ -7,11 +7,11 @@ Designed to run efficiently on consumer hardware (8GB RAM), this Flask-based too
 - **Analytical questions** (e.g., "Who is the most active user?") and
 - **Semantic questions** (e.g., "What are the best heating techniques?").
 
-The system provides 100% accurate, data-driven answers for analytical queries and nuanced, context-aware responses for semantic queries.
+The system provides data-driven answers for analytical queries and context-aware responses for semantic queries. Results are generated automatically and users should verify important information.
 
 ## ✨ Key Features
 
-- 🎯 **Dual-Engine Query System**: Accurately answers both analytical (data-driven) and semantic (LLM-based) questions. No more wrong answers for statistical queries.
+- 🎯 **Dual-Engine Query System**: Provides analytical (data-driven) and semantic (LLM-based) query processing with automatic routing.
 - 🔗 **Clickable Post Links**: Provides direct links to the specific source posts for all analytical results, ensuring full traceability.
 - 🧠 **Local LLM Powered**: Uses Ollama with deepseek-r1:1.5b and nomic-embed-text models for privacy and performance.
 - 🔄 **Smart Reprocessing**: Re-analyze existing threads without re-downloading using saved HTML.
@@ -19,15 +19,16 @@ The system provides 100% accurate, data-driven answers for analytical queries an
 - 🛡️ **Security First**: Input validation, SSRF protection, and data sanitization.
 - ⚡ **Hardware Optimized**: Runs efficiently on 8GB RAM systems with progress tracking.
 - 🌐 **Multi-Platform**: Supports XenForo, vBulletin, phpBB, and generic forums.
+- 🤝 **Respectful Scraping**: 1.5-3.5s delays with jitter, User-Agent rotation, exponential backoff.
 - 🚀 **Performance Monitoring**: Real-time analytics and bottleneck detection.
 
 ## 🏗️ Architecture
 
 ### Core Components
 
-- **Forum Scraper**: Comprehensive page detection and HTML preservation
+- **Forum Scraper**: Respectful scraping with jitter, comprehensive page detection and HTML preservation
 - **Query Router**: LLM-powered intelligent query classification and routing
-- **Data Analyzer**: 100% accurate statistical analysis with post links
+- **Data Analyzer**: Statistical analysis with post links
 - **Embedding System**: Domain-optimized vector search with HyDE enhancement
 - **Platform Manager**: Dynamic configuration for different forum platforms
 - **Security Layer**: Input validation and SSRF protection
@@ -64,7 +65,7 @@ Visit http://localhost:8080 to access the web interface.
 3. Query with natural language questions
 
 ### Existing Thread Queries
-- **Analytical**: "Who is the most active user?" → Data-driven answer with post counts
+- **Analytical**: "Who is the most active user?" → Data-driven response with post counts
 - **Positional**: "Who was the second user to post?" → Chronological analysis with links
 - **Semantic**: "What are the best heating techniques?" → Vector search + LLM analysis
 - **Temporal**: "How did opinions change over time?" → Timeline analysis
@@ -103,6 +104,6 @@ Optimized for consumer hardware:
 - Rate limiting and request throttling
 - Comprehensive error handling with logging
 
-## 📝 Development
+## ⚠️ Disclaimer
 
-See [CLAUDE.md](CLAUDE.md) for detailed development guidelines, architecture documentation, and troubleshooting information.
+This tool generates automated responses based on forum content analysis. Users should verify important information independently. Results are for informational purposes and should not be considered authoritative without proper verification.

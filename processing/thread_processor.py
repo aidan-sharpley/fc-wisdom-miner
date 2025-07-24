@@ -82,6 +82,15 @@ class ThreadProcessor:
             if not raw_posts:
                 raise ValueError("No posts found in thread")
 
+            # Log respectful scraping statistics
+            scraper_stats = self.scraper.get_stats()
+            if scraper_stats.get('respectful_mode', False):
+                logger.info(f"Respectful scraping completed - "
+                          f"Total delay: {scraper_stats.get('total_delay_time', 0):.1f}s "
+                          f"({scraper_stats.get('delay_percentage', 0):.1f}% of total time), "
+                          f"Avg delay per request: {scraper_stats.get('average_delay_per_request', 0):.2f}s, "
+                          f"Request rate: {scraper_stats.get('requests_per_minute', 0):.1f}/min")
+
             # Step 3: Process posts
             logger.info(f"Processing {len(raw_posts)} raw posts")
             processed_posts, processing_stats = self.post_processor.process_posts(

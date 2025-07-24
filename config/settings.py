@@ -58,7 +58,7 @@ MAX_WORKERS = 3  # Reduced from 4 for M1 efficiency cores (8GB RAM optimal)
 EMBEDDING_BATCH_SIZE = 8  # Reduced from 10 to prevent memory spikes on 8GB systems
 EMBEDDING_MAX_RETRIES = 3
 EMBEDDING_CACHE_SIZE = 800  # Reduced from 1000 for memory management
-DELAY_BETWEEN_REQUESTS = 0.3  # Reduced delay for M1's efficiency
+DELAY_BETWEEN_REQUESTS = 0.3  # Fast delay for local embedding operations
 
 # ==================== HNSW Index Parameters ====================
 
@@ -92,10 +92,21 @@ UI_TIMEOUT_SECONDS = 120  # UI timeout for long operations
 
 # ==================== Forum Scraping Settings ====================
 
-# Web scraping parameters
+# Web scraping parameters - respectful scraping settings
 USER_AGENT = 'Mozilla/5.0 (compatible; ForumWisdomMiner/1.0)'
-REQUEST_DELAY = 0.5  # Seconds between requests to be respectful
+BASE_REQUEST_DELAY = 1.5  # Base delay between requests (seconds)
+JITTER_RANGE = (0.5, 2.0)  # Random jitter range to add to base delay
 MAX_PAGES_PER_THREAD = 1000  # Safety limit
+RESPECTFUL_SCRAPING = True  # Enable respectful scraping features
+
+# User-Agent rotation for more natural browsing patterns
+USER_AGENTS = [
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0',
+    'Mozilla/5.0 (compatible; ForumWisdomMiner/2.0; +https://github.com/user/fc-wisdom-miner)'
+]
 
 # CSS selectors for different forum types (in priority order)
 POST_SELECTORS = [
@@ -214,7 +225,7 @@ PERFORMANCE_LOG_THRESHOLD = 1.0  # Log operations taking longer than 1 second
 RETRY_CONFIG = {
     'embedding': {'max_retries': 3, 'backoff': 2.0},
     'search': {'max_retries': 2, 'backoff': 1.5},
-    'scraping': {'max_retries': 3, 'backoff': 1.0},
+    'scraping': {'max_retries': 3, 'backoff': 2.0, 'base_delay': 5.0},  # Respectful backoff
     'file_ops': {'max_retries': 2, 'backoff': 0.5},
 }
 

@@ -6,6 +6,7 @@ This module handles fetching and parsing forum threads from various forum platfo
 
 import logging
 import os
+import random
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -13,7 +14,10 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from config.settings import DELAY_BETWEEN_REQUESTS
+from config.settings import (
+    BASE_REQUEST_DELAY, JITTER_RANGE, RESPECTFUL_SCRAPING, USER_AGENTS, 
+    RETRY_CONFIG, DELAY_BETWEEN_REQUESTS
+)
 from config.platform_config import get_platform_config, detect_forum_platform
 from utils.helpers import normalize_url, post_hash
 from utils.text_utils import clean_post_content
@@ -26,23 +30,28 @@ logger = logging.getLogger(__name__)
 class ForumScraper:
     """Enhanced forum scraper with dynamic platform configuration support."""
     
-    def __init__(self, delay: float = None, platform_config: Dict = None):
+    def __init__(self, delay: float = None, platform_config: Dict = None, respectful: bool = True):
         """Initialize the forum scraper.
         
         Args:
             delay: Delay between requests in seconds (overrides platform config)
             platform_config: Platform-specific configuration dict
+            respectful: Enable respectful scraping with jitter and user-agent rotation
         """
         self.platform_config = platform_config or {}
-        self.delay = delay or self.platform_config.get('scraping', {}).get('delay_between_requests', DELAY_BETWEEN_REQUESTS)
+        self.respectful = respectful and RESPECTFUL_SCRAPING
         
-        # Initialize session with platform-specific headers
+        # Set delay - use respectful delay by default, allow override
+        if delay is not None:
+            self.base_delay = delay
+        elif self.respectful:
+            self.base_delay = self.platform_config.get('scraping', {}).get('delay_between_requests', BASE_REQUEST_DELAY)
+        else:
+            self.base_delay = DELAY_BETWEEN_REQUESTS
+        
+        # Initialize session with rotating headers
         self.session = requests.Session()
-        default_headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
-        platform_headers = self.platform_config.get('scraping', {}).get('headers', {})
-        self.session.headers.update({**default_headers, **platform_headers})
+        self._update_session_headers()
         
         # Statistics
         self.stats = {
@@ -51,8 +60,47 @@ class ForumScraper:
             'failed_requests': 0,
             'total_posts_scraped': 0,
             'start_time': time.time(),
-            'platform_detected': self.platform_config.get('platform', {}).get('name', 'Unknown')
+            'platform_detected': self.platform_config.get('platform', {}).get('name', 'Unknown'),
+            'total_delay_time': 0,
+            'respectful_mode': self.respectful
         }
+    
+    def _update_session_headers(self):
+        """Update session headers with a random User-Agent if respectful mode is enabled."""
+        if self.respectful:
+            user_agent = random.choice(USER_AGENTS)
+        else:
+            user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        
+        default_headers = {
+            'User-Agent': user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        platform_headers = self.platform_config.get('scraping', {}).get('headers', {})
+        self.session.headers.update({**default_headers, **platform_headers})
+        
+        logger.debug(f"Updated User-Agent: {user_agent}")
+    
+    def _respectful_delay(self):
+        """Apply respectful delay with jitter between requests."""
+        if not self.respectful or self.base_delay <= 0:
+            return
+        
+        # Add random jitter to avoid predictable patterns
+        jitter = random.uniform(*JITTER_RANGE)
+        total_delay = self.base_delay + jitter
+        
+        logger.debug(f"Respectful delay: {total_delay:.2f}s (base: {self.base_delay}s + jitter: {jitter:.2f}s)")
+        
+        start_time = time.time()
+        time.sleep(total_delay)
+        actual_delay = time.time() - start_time
+        self.stats['total_delay_time'] += actual_delay
     
     @monitor_scraping_operation
     def scrape_thread(self, base_url: str, max_pages: int = 1000, save_html: bool = True, thread_dir: str = None) -> Tuple[List[Dict], Dict]:
@@ -123,9 +171,12 @@ class ForumScraper:
                     logger.info("No more pages found or reached end of thread")
                     break
                 
-                # Rate limiting
-                if self.delay > 0:
-                    time.sleep(self.delay)
+                # Respectful rate limiting with jitter
+                self._respectful_delay()
+                
+                # Rotate User-Agent occasionally to appear more natural
+                if self.respectful and page_num % 5 == 0:
+                    self._update_session_headers()
                     
             except Exception as e:
                 error_msg = f"Error scraping page {page_num}: {e}"
@@ -177,31 +228,56 @@ class ForumScraper:
             logger.error(f"Error scraping page {url}: {e}")
             return [], None
     
-    def _fetch_page(self, url: str, max_retries: int = 3) -> Optional[requests.Response]:
-        """Fetch a page with retry logic.
+    def _fetch_page(self, url: str, max_retries: int = None) -> Optional[requests.Response]:
+        """Fetch a page with respectful retry logic and exponential backoff.
         
         Args:
             url: URL to fetch
-            max_retries: Maximum number of retry attempts
+            max_retries: Maximum number of retry attempts (uses config if None)
             
         Returns:
             Response object or None if failed
         """
+        if max_retries is None:
+            max_retries = RETRY_CONFIG['scraping']['max_retries']
+        
+        backoff_multiplier = RETRY_CONFIG['scraping']['backoff']
+        base_retry_delay = RETRY_CONFIG['scraping'].get('base_delay', 2.0)
+        
         for attempt in range(max_retries):
             try:
                 self.stats['total_requests'] += 1
+                
+                # Add a small delay before each request to be respectful
+                if attempt > 0 and self.respectful:
+                    # Exponential backoff with jitter for retries
+                    retry_delay = base_retry_delay * (backoff_multiplier ** (attempt - 1))
+                    jitter = random.uniform(0.1, 0.5)
+                    total_retry_delay = retry_delay + jitter
+                    
+                    logger.info(f"Retry delay for attempt {attempt + 1}: {total_retry_delay:.2f}s")
+                    time.sleep(total_retry_delay)
+                    self.stats['total_delay_time'] += total_retry_delay
+                
                 response = self.session.get(url, timeout=30)
                 response.raise_for_status()
                 self.stats['successful_requests'] += 1
+                
+                # Check if we're being rate limited or blocked
+                if response.status_code == 429:
+                    logger.warning(f"Rate limited by server: {url}")
+                    raise requests.exceptions.RequestException("Rate limited")
+                
                 return response
                 
             except requests.exceptions.RequestException as e:
                 logger.warning(f"Request attempt {attempt + 1} failed for {url}: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                else:
-                    self.stats['failed_requests'] += 1
+                self.stats['failed_requests'] += 1
+                
+                # If this is the last attempt, don't retry
+                if attempt == max_retries - 1:
                     logger.error(f"Failed to fetch {url} after {max_retries} attempts")
+                    break
         
         return None
     
@@ -695,15 +771,21 @@ class ForumScraper:
         return None
     
     def get_stats(self) -> Dict:
-        """Get scraping statistics."""
+        """Get comprehensive scraping statistics."""
         duration = time.time() - self.stats['start_time']
+        active_scraping_time = duration - self.stats['total_delay_time']
+        
         return {
             **self.stats,
             'duration': duration,
+            'active_scraping_time': active_scraping_time,
+            'delay_percentage': (self.stats['total_delay_time'] / max(1, duration)) * 100,
             'success_rate': (
                 self.stats['successful_requests'] / max(1, self.stats['total_requests'])
             ),
-            'posts_per_second': self.stats['total_posts_scraped'] / max(1, duration)
+            'posts_per_second': self.stats['total_posts_scraped'] / max(1, active_scraping_time),
+            'requests_per_minute': (self.stats['total_requests'] / max(1, duration)) * 60,
+            'average_delay_per_request': self.stats['total_delay_time'] / max(1, self.stats['total_requests'])
         }
 
 

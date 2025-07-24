@@ -42,6 +42,11 @@ Core dependencies:
 - `OLLAMA_EMBED_MODEL`: Model for embeddings (default: "nomic-embed-text:v1.5")
 - `SECRET_KEY`: Flask secret key for sessions and security
 
+### Respectful Scraping Configuration
+- `BASE_REQUEST_DELAY`: Base delay between requests (default: 1.5 seconds)
+- `JITTER_RANGE`: Random jitter added to delays (default: 0.5-2.0 seconds)
+- `RESPECTFUL_SCRAPING`: Enable respectful scraping features (default: True)
+
 ## Architecture Overview
 
 This is a modular forum analysis application with separate components for scraping, processing, embedding, search, and analytics. The architecture prioritizes performance, accuracy, and maintainability for consumer hardware with 8GB RAM.
@@ -49,12 +54,15 @@ This is a modular forum analysis application with separate components for scrapi
 ### Core Modular Components
 
 #### 1. **Forum Scraper** (`scraping/forum_scraper.py`)
+- **Respectful Scraping**: 1.5-3.5 second delays with random jitter to avoid predictable patterns
+- **User-Agent Rotation**: Rotates through realistic browser user-agents every 5 pages
+- **Exponential Backoff**: Intelligent retry logic with increasing delays on failures
 - **Comprehensive Page Detection**: Scrapes ALL pages (up to 1000, configurable)
 - **Post URL Extraction**: Captures direct links to individual posts for clickable references
 - **Vote/Reaction Extraction**: Extracts upvotes, downvotes, reactions, likes from various forum platforms
 - **HTML Preservation**: Saves raw HTML files for reprocessing
 - **Robust Pagination**: Enhanced detection for XenForo, vBulletin, phpBB, and custom forums
-- **Efficient Processing**: Rate limiting and request handling optimized for efficiency
+- **Rate Limiting Statistics**: Detailed metrics on delay times and server-friendly behavior
 
 #### 2. **Post Processor** (`processing/post_processor.py`)
 - **Intelligent Filtering**: Less aggressive content filtering (30% letter ratio vs 50%)
