@@ -63,18 +63,30 @@ class ThreadNarrative:
     
     def _generate_chronological_narrative(self, posts: List[Dict], analytics: Dict) -> Dict:
         """Generate chronological narrative with topic detection."""
+        logger.info("Detecting conversation phases...")
         # Detect conversation phases
         phases = self._detect_conversation_phases(posts)
+        logger.info(f"Detected {len(phases)} conversation phases")
         
+        logger.info("Identifying high-reaction posts...")
         # Identify high-reaction posts
         reaction_posts = self._identify_reaction_posts(posts)
+        logger.info(f"Found {len(reaction_posts)} high-reaction posts")
         
+        logger.info("Generating narrative sections with LLM...")
         # Generate narrative sections
         narrative_sections = []
-        for phase in phases:
-            section = self._generate_phase_narrative(phase, posts, reaction_posts)
-            narrative_sections.append(section)
+        from tqdm import tqdm
+        with tqdm(total=len(phases), desc="Generating narratives", unit="phase") as pbar:
+            for i, phase in enumerate(phases, 1):
+                topic = phase.get('topic', 'Unknown')
+                pbar.set_description(f"Generating narrative: {topic}")
+                logger.info(f"Generating narrative for phase {i}/{len(phases)}: {topic}")
+                section = self._generate_phase_narrative(phase, posts, reaction_posts)
+                narrative_sections.append(section)
+                pbar.update(1)
         
+        logger.info("Creating overall thread summary with LLM...")
         # Create overall thread summary
         thread_summary = self._generate_thread_overview(posts, phases, analytics)
         
