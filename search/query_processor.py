@@ -486,16 +486,9 @@ class QueryProcessor:
         """
         response_text = self._generate_analytical_response_text(analytical_result)
         
-        # Yield the response in chunks to simulate streaming
-        words = response_text.split()
-        chunk_size = 5  # Words per chunk
-        
-        for i in range(0, len(words), chunk_size):
-            chunk = ' '.join(words[i:i+chunk_size])
-            if i + chunk_size < len(words):
-                chunk += ' '
-            yield chunk
-            time.sleep(0.05)  # Small delay for streaming effect
+        # For analytical responses, yield the complete formatted text at once
+        # to avoid breaking markdown formatting during streaming
+        yield response_text
     
     def _generate_analytical_response_text(self, analytical_result: Dict) -> str:
         """Generate response text from analytical results.
@@ -751,63 +744,66 @@ class QueryProcessor:
         return ''.join(response_parts)
     
     def _format_technical_specifications(self, result: Dict) -> str:
-        """Format technical specifications analysis results."""
+        """Format technical specifications analysis results with clean structure."""
         if 'error' in result:
             return f"**Analysis Error:**\n\n{result['error']}\n\nTotal posts analyzed: {result.get('total_posts_analyzed', 0)}"
         
         spec_type = result.get('spec_type', 'settings')
-        query = result.get('query', '')
         common_settings = result.get('common_settings', [])
         top_posts = result.get('top_posts', [])
         
         response_parts = []
         
-        response_parts.append(f"**{spec_type.title()} Settings Analysis:**\n\n")
-        
-        # Show most common settings if found
+        # Main answer first - most common settings
         if common_settings:
-            response_parts.append(f"🔧 **Most Common {spec_type.title()} Settings:**\n")
+            response_parts.append(f"## Most Common {spec_type.title()} Settings:\n\n")
             for i, setting_data in enumerate(common_settings[:5], 1):
                 setting = setting_data['setting']
                 mentions = setting_data['mentions']
-                response_parts.append(f"{i}. **{setting}** - mentioned {mentions} time(s)\n")
+                response_parts.append(f"**{i}. {setting}** ({mentions} mentions)\n")
             response_parts.append("\n")
         
-        # Show top relevant posts
+        # Collapsible detailed analysis section
+        response_parts.append("<details>\n")
+        response_parts.append("<summary><strong>📋 View Detailed Post Analysis</strong></summary>\n\n")
+        
+        # Show top relevant posts in collapsible section
         if top_posts:
-            response_parts.append(f"📋 **Top Community Posts About {spec_type.title()}:**\n\n")
+            response_parts.append(f"### Top Community Posts About {spec_type.title()}:\n\n")
             for i, post in enumerate(top_posts[:3], 1):
-                response_parts.append(f"**{i}. {post.get('author', 'Unknown')}** ")
+                response_parts.append(f"**{i}. {post.get('author', 'Unknown')}** (Page {post.get('page', 1)})")
                 if post.get('engagement', 0) > 0:
-                    response_parts.append(f"(⬆️ {post['engagement']} engagement) ")
-                response_parts.append(f"- Page {post.get('page', 1)}\n")
+                    response_parts.append(f" - {post['engagement']} ⬆️")
+                response_parts.append("\n")
                 
-                # Show specific values found
-                if 'spec_values' in post:
-                    response_parts.append(f"   • **Settings mentioned**: {', '.join(post['spec_values'])}\n")
-                
-                # Show relevance reason
-                if post.get('relevance_reason'):
-                    response_parts.append(f"   • **Why relevant**: {post['relevance_reason']}\n")
+                # Show specific values found  
+                if 'spec_values' in post and post['spec_values']:
+                    unique_values = list(set(post['spec_values']))  # Remove duplicates
+                    response_parts.append(f"• **Settings**: {', '.join(unique_values[:5])}")  # Limit to 5
+                    if len(post['spec_values']) > 5:
+                        response_parts.append(f" (+{len(post['spec_values'])-5} more)")
+                    response_parts.append("\n")
                 
                 # Show content preview
                 preview = post.get('content_preview', '')
                 if preview:
-                    response_parts.append(f"   • **Content**: \"{preview}\"\n")
+                    response_parts.append(f"• **Quote**: \"{preview[:150]}{'...' if len(preview) > 150 else ''}\"\n")
                 
                 # Add post link if available
                 if post.get('post_url'):
-                    response_parts.append(f"   • **Direct link**: {post['post_url']}\n")
+                    response_parts.append(f"• **Link**: {post['post_url']}\n")
                 elif post.get('post_id'):
-                    response_parts.append(f"   • **Post ID**: {post['post_id']}\n")
+                    response_parts.append(f"• **Post ID**: {post['post_id']}\n")
                 
                 response_parts.append("\n")
         
-        # Summary stats
-        response_parts.append(f"📊 **Analysis Summary:**\n")
-        response_parts.append(f"• **Relevant posts found**: {result.get('relevant_posts_count', 0)}\n")
-        response_parts.append(f"• **Different {spec_type} values**: {result.get('settings_found', 0)}\n")
-        response_parts.append(f"• **Total posts analyzed**: {result.get('total_posts_analyzed', 0)}\n")
+        # Summary stats in collapsible section
+        response_parts.append("### Analysis Summary:\n")
+        response_parts.append(f"- Found **{result.get('relevant_posts_count', 0)} relevant posts** discussing {spec_type}\n")
+        response_parts.append(f"- Identified **{result.get('settings_found', 0)} different {spec_type} values**\n")
+        response_parts.append(f"- Analyzed **{result.get('total_posts_analyzed', 0)} total posts**\n")
+        
+        response_parts.append("\n</details>")
         
         return ''.join(response_parts)
     

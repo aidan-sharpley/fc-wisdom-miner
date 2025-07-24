@@ -220,6 +220,25 @@ JSON ONLY - NO OTHER TEXT:
             logger.error(f"Error getting LLM routing response: {e}")
             raise
     
+    def _clean_llm_response(self, response: str) -> str:
+        """Clean LLM response to extract only the JSON part."""
+        import re
+        
+        # Remove <think> tags and their content
+        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Find JSON object in the response
+        # Look for the first { and last } to extract JSON
+        start_idx = response.find('{')
+        end_idx = response.rfind('}')
+        
+        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+            json_part = response[start_idx:end_idx+1]
+            return json_part.strip()
+        
+        # If no JSON found, return the cleaned response
+        return response.strip()
+    
     def _fallback_routing(self, query: str) -> Dict:
         """Fallback routing using simple heuristics when LLM fails."""
         query_lower = query.lower()
