@@ -16,6 +16,7 @@ from analytics.query_analytics import ConversationalQueryProcessor
 from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
 from search.response_refiner import ResponseRefiner
+from search.keyword_search import KeywordSearchEngine, merge_search_results
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,9 @@ class QueryProcessor:
         self.query_analyzer = ConversationalQueryProcessor()
         self.data_analyzer = ForumDataAnalyzer(thread_dir)
         self.response_refiner = ResponseRefiner()
+        
+        # Initialize keyword search with posts from semantic search engine
+        self.keyword_search = KeywordSearchEngine(self.search_engine.posts)
         
         # LLM configuration
         self.chat_url = f"{OLLAMA_BASE_URL}/api/chat"
@@ -120,10 +124,28 @@ class QueryProcessor:
             elif self._is_product_recommendation_query(query, query_analysis):
                 search_depth = 25  # Cast wider net for product recommendations
                 logger.info("Product recommendation detected - using expanded search")
+            elif self._query_contains_superlatives(query):
+                # For "most/best/top" queries, search deeper into thread
+                search_depth = min(100, len(self.search_engine.posts) // 10)  # 10% of thread
+                logger.info(f"Superlative query detected - using deep search ({search_depth} results)")
+            elif self._is_instructional_query(query):
+                # For instruction/how-to queries, search more broadly
+                search_depth = 30  # Instructions often scattered across posts
+                logger.info(f"Instructional query detected - using expanded search ({search_depth} results)")
             
-            # Use expanded query for better search results
+            # Multi-stage search pipeline: keyword + semantic
             search_query = query_analysis.get('expanded_query', query)
-            search_results, search_metadata = self.search_engine.search(search_query, top_k=search_depth)
+            
+            # Stage 1: Keyword search for exact matches
+            keyword_results = self.keyword_search.search(query, top_k=max(25, search_depth // 2))
+            
+            # Stage 2: Semantic search
+            semantic_results, search_metadata = self.search_engine.search(search_query, top_k=search_depth)
+            
+            # Stage 3: Merge and deduplicate results
+            search_results = merge_search_results(semantic_results, keyword_results, max_results=min(search_depth + 15, 50))
+            
+            logger.info(f"Multi-stage search: {len(keyword_results)} keyword + {len(semantic_results)} semantic → {len(search_results)} merged results")
             
             # Step 4: Build context
             context = self._build_context(search_results, query_analysis)
@@ -208,11 +230,12 @@ class QueryProcessor:
             
             context_parts.append(f"{post_header}\n{'-' * 50}\n{post_content}\n")
         
-        # Add thread-level context if available
+        # Add enhanced thread-level context if available
         thread_context = ""
         if hasattr(self.search_engine, 'thread_analytics') and self.search_engine.thread_analytics:
             analytics = self.search_engine.thread_analytics.get('summary', {})
             overview = analytics.get('overview', {})
+            activity = analytics.get('activity', {})
             
             if overview:
                 thread_context = (
@@ -222,11 +245,22 @@ class QueryProcessor:
                     f"Pages: {overview.get('pages', 'Unknown')}\n"
                 )
                 
-                # Add key topics
+                # Add most active contributor
+                most_active = activity.get('most_active_author', {})
+                if most_active.get('name'):
+                    thread_context += f"Most Active: {most_active['name']} ({most_active.get('post_count', 0)} posts)\n"
+                
+                # Add key topics  
                 content_insights = analytics.get('content_insights', {})
                 keywords = content_insights.get('primary_keywords', [])
                 if keywords:
                     thread_context += f"Main Topics: {', '.join(keywords[:5])}\n"
+                
+                # Add search coverage info
+                total_posts = overview.get('total_posts', 0)
+                if total_posts > 0:
+                    coverage_pct = (len(search_results) / total_posts) * 100
+                    thread_context += f"Search Coverage: {len(search_results)}/{total_posts} posts ({coverage_pct:.1f}%)\n"
         
         context = thread_context + "\nRELEVANT POSTS:\n" + "\n".join(context_parts)
         
@@ -398,6 +432,7 @@ class QueryProcessor:
                 self.stats['total_llm_time'] / max(1, self.stats['llm_calls'])
             ),
             'search_engine_stats': self.search_engine.get_stats(),
+            'keyword_search_stats': self.keyword_search.get_stats(),
             'response_refiner_stats': self.response_refiner.get_stats()
         }
     
@@ -703,6 +738,43 @@ class QueryProcessor:
         has_product = any(product_type in query_lower for product_type in product_types)
         
         return has_recommendation and has_product
+    
+    def _query_contains_superlatives(self, query: str) -> bool:
+        """Check if query contains superlative terms requiring deep search.
+        
+        Args:
+            query: Query string to check
+            
+        Returns:
+            True if query contains superlative terms
+        """
+        superlatives = [
+            'most', 'best', 'top', 'highest', 'lowest', 'biggest', 'smallest',
+            'first', 'last', 'worst', 'least', 'favorite', 'preferred',
+            'ultimate', 'optimal', 'ideal', 'perfect', 'maximum', 'minimum'
+        ]
+        
+        query_lower = query.lower()
+        return any(sup in query_lower for sup in superlatives)
+    
+    def _is_instructional_query(self, query: str) -> bool:
+        """Check if query is asking for instructions or how-to information.
+        
+        Args:
+            query: Query string to check
+            
+        Returns:
+            True if query is asking for instructions
+        """
+        instructional_terms = [
+            'instructions', 'instruction', 'how to', 'how do', 'steps',
+            'guide', 'tutorial', 'method', 'technique', 'process',
+            'procedure', 'setup', 'configure', 'install', 'use',
+            'operate', 'work with', 'handle', 'manage'
+        ]
+        
+        query_lower = query.lower()
+        return any(term in query_lower for term in instructional_terms)
 
 
 __all__ = ['QueryProcessor']

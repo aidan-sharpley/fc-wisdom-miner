@@ -5,6 +5,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Forum Wisdom Miner - Advanced Thread Analysis</title>
+  <!-- Add markdown parser -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
       --primary-color: #3498db;
@@ -393,11 +395,11 @@
     }
 
     #response {
-      white-space: pre-wrap;
       background: #fafafa;
       padding: 1.5em;
       border: none;
       min-height: 150px;
+      line-height: 1.6;
       max-height: 500px;
       overflow-y: auto;
       font-family: 'Consolas', 'Monaco', monospace;
@@ -906,7 +908,7 @@
             }
           }
           
-          responseEl.textContent = receivedText;
+          responseEl.innerHTML = marked.parse(receivedText);
           responseEl.scrollTop = responseEl.scrollHeight;
 
           // Update progress based on content phases

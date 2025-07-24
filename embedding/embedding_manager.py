@@ -142,7 +142,8 @@ class EmbeddingManager:
         total_batches = (len(texts) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
 
         # Process in batches with progress updates
-        if progress_callback and len(texts) > 50:  # Only send detailed updates for large batches
+        if progress_callback and len(texts) > 10:  # Send progress updates for batches > 10
+            logger.info(f"DEBUG: Starting batch embedding generation with progress callback for {len(texts)} texts")
             for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
                 batch = texts[i : i + EMBEDDING_BATCH_SIZE]
                 batch_embeddings = self._generate_single_batch(batch)
@@ -151,7 +152,9 @@ class EmbeddingManager:
                 # Send progress update
                 completed = len(embeddings)
                 progress_percent = (completed / len(texts)) * 100
-                progress_callback(f"Generating embeddings: {completed}/{len(texts)} ({progress_percent:.1f}%)")
+                progress_message = f"Generating embeddings: {completed}/{len(texts)} ({progress_percent:.1f}%)"
+                logger.info(f"DEBUG: Sending progress update: {progress_message}")
+                progress_callback(progress_message)
         else:
             # Use tqdm for console progress when no callback
             with tqdm(total=total_batches, desc="Generating embeddings", unit="batch") as pbar:

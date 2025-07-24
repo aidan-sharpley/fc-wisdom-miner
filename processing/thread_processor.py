@@ -85,6 +85,9 @@ class ThreadProcessor:
             logger.info(f"Generating embeddings for {len(processed_posts)} posts")
             if progress_callback:
                 progress_callback(f"Generating embeddings for {len(processed_posts)} posts...")
+                logger.info("DEBUG: Progress callback is available and called for embeddings")
+            else:
+                logger.warning("DEBUG: No progress callback provided for embeddings")
             embeddings = self._generate_embeddings(processed_posts, progress_callback)
 
             # Step 5: Build/update search index

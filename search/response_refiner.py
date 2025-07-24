@@ -152,6 +152,15 @@ class ResponseRefiner:
         # Remove <think> tags and their content completely
         cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL | re.IGNORECASE)
         
+        # Also remove any stray opening/closing think tags
+        cleaned = re.sub(r'</?think[^>]*>', '', cleaned, flags=re.IGNORECASE)
+        
+        # Remove any remaining thinking-style content between angle brackets
+        cleaned = re.sub(r'<[^>]*thinking[^>]*>.*?</[^>]*>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Remove standalone thinking sections
+        cleaned = re.sub(r'\n\s*thinking[:\s]*.*?\n\n', '\n\n', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        
         # Remove common thinking phrases
         thinking_patterns = [
             r'let me think.*?\.', 
