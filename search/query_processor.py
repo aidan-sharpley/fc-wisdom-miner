@@ -251,6 +251,14 @@ class QueryProcessor:
                     f"Pages: {overview.get('pages', 'Unknown')}\n"
                 )
                 
+                # Add thread creator if available (highest priority for authorship questions)
+                if hasattr(self.search_engine, 'thread_analytics') and self.search_engine.thread_analytics:
+                    metadata = self.search_engine.thread_analytics.get('metadata', {})
+                    thread_creator = metadata.get('thread_creator')
+                    if thread_creator:
+                        creator_name = thread_creator.get('username', 'Unknown')
+                        thread_context += f"Thread Creator: {creator_name} (extracted from URL)\n"
+                
                 # Add most active contributor
                 most_active = activity.get('most_active_author', {})
                 if most_active.get('name'):
@@ -269,6 +277,23 @@ class QueryProcessor:
                     thread_context += f"Search Coverage: {len(search_results)}/{total_posts} posts ({coverage_pct:.1f}%)\n"
         
         context = thread_context + "\nRELEVANT POSTS:\n" + "\n".join(context_parts)
+        
+        # Add metadata priority guidance for authorship queries
+        query = query_analysis.get('original_query', '').lower()
+        if any(indicator in query for indicator in [
+            'thread author', 'thread creator', 'who created', 'who started',
+            'original poster', 'op', 'thread starter', 'who made this thread'
+        ]):
+            if hasattr(self.search_engine, 'thread_analytics') and self.search_engine.thread_analytics:
+                metadata = self.search_engine.thread_analytics.get('metadata', {})
+                thread_creator = metadata.get('thread_creator')
+                if thread_creator:
+                    creator_name = thread_creator.get('username', 'Unknown')
+                    context = (
+                        f"\n🎯 METADATA PRIORITY: For thread authorship questions, use the Thread Creator from metadata: {creator_name}\n"
+                        f"This information is extracted from the canonical URL and has highest confidence.\n"
+                        f"Do not infer authorship from post frequency or content analysis.\n\n"
+                    ) + context
         
         logger.debug(f"Built context with {len(search_results)} posts ({len(context)} characters)")
         return context

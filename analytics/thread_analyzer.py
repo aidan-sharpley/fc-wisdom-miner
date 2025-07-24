@@ -121,6 +121,34 @@ class ThreadAnalyzer:
         age_minutes = (time.time() - self._cache_time) / 60
         return age_minutes < max_age_minutes
 
+    def _extract_thread_creator_from_url(self, base_url: str) -> Optional[Dict[str, Any]]:
+        """Extract thread creator from canonical URL patterns.
+        
+        Args:
+            base_url: The canonical thread URL
+            
+        Returns:
+            Thread creator information if found
+        """
+        if not base_url:
+            return None
+            
+        import re
+        
+        # Pattern: /threads/title-by-username.id/
+        pattern = r'/threads/.*?-by-([^./]+)\.?\d+/?'
+        match = re.search(pattern, base_url)
+        if match:
+            username = match.group(1)
+            return {
+                'username': username,
+                'source': 'canonical_url',
+                'confidence': 'high',
+                'extracted_from': base_url
+            }
+        
+        return None
+
     def _analyze_metadata(self, posts: List[Dict]) -> Dict[str, Any]:
         """Analyze basic thread metadata."""
         if not posts:
@@ -138,7 +166,15 @@ class ThreadAnalyzer:
         first_post = min(posts, key=lambda p: p.get('global_position', 0))
         last_post = max(posts, key=lambda p: p.get('global_position', 0))
 
-        return {
+        # Load thread metadata to get base URL
+        metadata_path = os.path.join(self.thread_dir, 'metadata.json')
+        thread_metadata = safe_read_json(metadata_path) or {}
+        base_url = thread_metadata.get('scrape_metadata', {}).get('base_url', '')
+        
+        # Extract thread creator from URL
+        thread_creator = self._extract_thread_creator_from_url(base_url)
+
+        result = {
             'total_posts': len(posts),
             'total_pages': len(pages),
             'unique_urls': len(urls),
@@ -153,6 +189,12 @@ class ThreadAnalyzer:
                 'position': last_post.get('global_position'),
             },
         }
+        
+        # Add thread creator if found
+        if thread_creator:
+            result['thread_creator'] = thread_creator
+            
+        return result
 
     def _analyze_participants(self, posts: List[Dict]) -> Dict[str, Any]:
         """Analyze thread participants and their activity patterns."""

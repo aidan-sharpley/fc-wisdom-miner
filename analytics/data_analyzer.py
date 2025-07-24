@@ -43,6 +43,11 @@ class ForumDataAnalyzer:
             self.analytics_cache = safe_read_json(analytics_file) or {}
         return self.analytics_cache
     
+    def _load_metadata(self) -> Dict:
+        """Load thread metadata."""
+        metadata_file = f"{self.thread_dir}/metadata.json"
+        return safe_read_json(metadata_file) or {}
+    
     def analyze_participant_activity(self, query: str) -> Dict[str, Any]:
         """Analyze participant activity patterns.
         
@@ -325,6 +330,72 @@ class ForumDataAnalyzer:
                 'confidence': 0.9
             }
     
+    def analyze_thread_authorship(self, query: str) -> Dict[str, Any]:
+        """Analyze thread authorship with metadata priority.
+        
+        Args:
+            query: The original query
+            
+        Returns:
+            Analysis results with thread creator information
+        """
+        analytics = self._load_analytics()
+        
+        # 1. Check URL-based thread creator (highest priority)
+        thread_creator = analytics.get('metadata', {}).get('thread_creator')
+        if thread_creator:
+            username = thread_creator.get('username')
+            return {
+                'type': 'thread_authorship',
+                'query': query,
+                'answer': f"The thread author is {username}",
+                'author': username,
+                'source': thread_creator.get('source', 'canonical_url'),
+                'confidence': 'high',
+                'evidence': f"Thread URL contains author identifier: {username}",
+                'extracted_from': thread_creator.get('extracted_from', '')
+            }
+        
+        # 2. Fallback to first post author (medium priority)
+        first_post = analytics.get('metadata', {}).get('first_post', {})
+        first_post_author = first_post.get('author')
+        if first_post_author:
+            return {
+                'type': 'thread_authorship', 
+                'query': query,
+                'answer': f"The thread author is {first_post_author} (based on first post)",
+                'author': first_post_author,
+                'source': 'first_post',
+                'confidence': 'medium',
+                'evidence': f"First post author: {first_post_author}",
+                'post_date': first_post.get('date', ''),
+                'post_position': first_post.get('position', 0)
+            }
+        
+        # 3. Load posts as final fallback
+        posts = self._load_posts()
+        if posts:
+            sorted_posts = sorted(posts, key=lambda x: x.get('global_position', 0))
+            first_author = sorted_posts[0].get('author', 'Unknown')
+            if first_author and first_author.lower() not in ['unknown', 'deleted', 'guest']:
+                return {
+                    'type': 'thread_authorship',
+                    'query': query, 
+                    'answer': f"The thread author is {first_author} (inferred from first post)",
+                    'author': first_author,
+                    'source': 'first_post_fallback',
+                    'confidence': 'low',
+                    'evidence': f"First post author from posts data: {first_author}"
+                }
+        
+        return {
+            'type': 'thread_authorship',
+            'query': query,
+            'answer': 'Thread author could not be determined',
+            'error': 'No thread creator information available',
+            'confidence': 'none'
+        }
+    
     def analyze_engagement_queries(self, query: str) -> Dict[str, Any]:
         """Analyze engagement-based queries like 'highest rated post', 'most popular post', etc.
         
@@ -487,6 +558,14 @@ class ForumDataAnalyzer:
             'earliest user', 'initial poster', 'second to post', 'third to post'
         ]
         
+        # Thread authorship queries - should use metadata lookup
+        thread_author_indicators = [
+            'thread author', 'thread creator', 'who created', 'who started',
+            'original poster', 'op', 'thread starter', 'who made this thread',
+            'author of thread', 'creator of thread', 'thread originator',
+            'who created this', 'who started this', 'thread op'
+        ]
+        
         # Engagement/rating queries (Enhanced - captures both explicit and vague engagement queries)
         engagement_indicators = [
             'highest rated', 'most rated', 'top rated', 'best rated', 'most popular',
@@ -521,6 +600,9 @@ class ForumDataAnalyzer:
             return True
             
         if any(indicator in query_lower for indicator in positional_indicators):
+            return True
+            
+        if any(indicator in query_lower for indicator in thread_author_indicators):
             return True
             
         if any(indicator in query_lower for indicator in engagement_indicators):
@@ -593,6 +675,14 @@ class ForumDataAnalyzer:
             'earliest user', 'initial poster', 'second to post', 'third to post'
         ]):
             return self.analyze_positional_queries(query)
+        
+        elif any(indicator in query_lower for indicator in [
+            'thread author', 'thread creator', 'who created', 'who started',
+            'original poster', 'op', 'thread starter', 'who made this thread',
+            'author of thread', 'creator of thread', 'thread originator',
+            'who created this', 'who started this', 'thread op'
+        ]):
+            return self.analyze_thread_authorship(query)
         
         elif any(indicator in query_lower for indicator in [
             'most active', 'who posted', 'top contributor', 'most posts',

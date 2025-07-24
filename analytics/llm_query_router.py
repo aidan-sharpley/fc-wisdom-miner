@@ -52,6 +52,11 @@ Can directly analyze thread data to answer:
 - Timeline analysis and posting order
 - Chronological patterns and thread evolution
 
+**Thread Authorship Analysis:**
+- Who is the thread author/creator?
+- Who started this thread?
+- Original poster (OP) identification using metadata priority
+
 **Technical Specifications Analysis:**
 - What wattage/temperature/voltage settings do people use?
 - Community settings and configurations mentioned
@@ -247,7 +252,9 @@ JSON ONLY - NO OTHER TEXT:
         analytical_indicators = [
             'who is', 'who was', 'who posted', 'most active', 'how many',
             'what wattage', 'what temperature', 'what settings', 'highest rated',
-            'first user', 'second user', 'count', 'number of'
+            'first user', 'second user', 'count', 'number of',
+            'thread author', 'thread creator', 'who created', 'who started',
+            'original poster', 'op', 'thread starter'
         ]
         
         if any(indicator in query_lower for indicator in analytical_indicators):
