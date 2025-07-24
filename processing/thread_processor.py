@@ -149,9 +149,12 @@ class ThreadProcessor:
             )
             return thread_key, processing_results
 
-        except Exception as e:
+        except (ValueError, OSError) as e:
             logger.error(f"Error processing thread {thread_key}: {e}")
             raise
+        except Exception as e:
+            logger.error(f"Unexpected error processing thread {thread_key}: {e}")
+            raise RuntimeError(f"Thread processing failed: {e}") from e
 
     def reprocess_existing_thread(self, thread_key: str, progress_callback=None) -> Tuple[str, Dict]:
         """Reprocess an existing thread by re-parsing saved HTML files with new optimizations.

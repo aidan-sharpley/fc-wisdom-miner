@@ -15,6 +15,7 @@ from tqdm import tqdm
 from config.settings import (
     EMBEDDING_BATCH_SIZE,
     EMBEDDING_CACHE_SIZE,
+    EMBEDDING_CACHE_SIZE_MB,
     EMBEDDING_MAX_RETRIES,
     OLLAMA_BASE_URL,
     OLLAMA_EMBED_MODEL,
@@ -43,7 +44,7 @@ class EmbeddingManager:
 
         # Advanced cache for embeddings (M1 MacBook Air 8GB optimized)
         cache_dir = f"{BASE_TMP_DIR}/embeddings_cache"
-        self.cache = ContentBasedCache(cache_dir, max_size_mb=150)  # Reduced from 200MB for 8GB systems
+        self.cache = ContentBasedCache(cache_dir, max_size_mb=EMBEDDING_CACHE_SIZE_MB)
         
         # Legacy cache tracking for compatibility
         self._cache_hits = 0

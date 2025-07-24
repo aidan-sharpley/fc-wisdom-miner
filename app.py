@@ -8,7 +8,9 @@ for better analytical data extraction and conversational querying.
 import logging
 import os
 import time
-from typing import Dict, List
+import threading
+import weakref
+from typing import Dict, List, Optional
 
 from flask import Flask, Response, jsonify, render_template, request
 
@@ -18,7 +20,8 @@ from analytics.thread_analyzer import ThreadAnalyzer
 from config.settings import (
     BASE_TMP_DIR, FEATURES, THREADS_DIR,
     OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, OLLAMA_EMBED_MODEL,
-    MAX_WORKERS, EMBEDDING_BATCH_SIZE
+    MAX_WORKERS, EMBEDDING_BATCH_SIZE, MAX_LOGGED_PROMPT_LENGTH,
+    QUERY_PROCESSOR_CACHE_SIZE
 )
 from processing.thread_processor import ThreadProcessor
 from search.query_processor import QueryProcessor
@@ -44,8 +47,57 @@ app.secret_key = os.environ.get("SECRET_KEY", "forum-wisdom-miner-secret-key")
 # Initialize main processor
 thread_processor = ThreadProcessor()
 
-# Cache for query processors (one per thread)
-query_processors = {}
+# Thread-safe LRU cache for query processors
+class QueryProcessorCache:
+    """Thread-safe LRU cache for QueryProcessor instances with automatic cleanup."""
+    
+    def __init__(self, max_size: int = QUERY_PROCESSOR_CACHE_SIZE):
+        self._cache = {}
+        self._access_order = []
+        self._max_size = max_size
+        self._lock = threading.RLock()
+    
+    def get(self, thread_key: str) -> QueryProcessor:
+        """Get or create a query processor for a thread."""
+        with self._lock:
+            if thread_key in self._cache:
+                # Move to end (most recently used)
+                self._access_order.remove(thread_key)
+                self._access_order.append(thread_key)
+                return self._cache[thread_key]
+            
+            # Create new processor
+            thread_dir = get_thread_dir(thread_key)
+            processor = QueryProcessor(thread_dir)
+            
+            # Add to cache
+            self._cache[thread_key] = processor
+            self._access_order.append(thread_key)
+            
+            # Cleanup if needed
+            self._cleanup_if_needed()
+            
+            return processor
+    
+    def _cleanup_if_needed(self):
+        """Remove least recently used items if cache is full."""
+        while len(self._cache) > self._max_size:
+            lru_key = self._access_order.pop(0)
+            if lru_key in self._cache:
+                del self._cache[lru_key]
+                logger.debug(f"Removed query processor for thread {lru_key} from cache")
+    
+    def clear(self):
+        """Clear all cached processors."""
+        with self._lock:
+            self._cache.clear()
+            self._access_order.clear()
+    
+    def size(self) -> int:
+        """Get current cache size."""
+        return len(self._cache)
+
+query_processor_cache = QueryProcessorCache()
 
 
 # -------------------- Utility Functions --------------------
@@ -58,11 +110,7 @@ def get_query_processor(thread_key: str) -> QueryProcessor:
     Returns:
         QueryProcessor instance for the thread
     """
-    if thread_key not in query_processors:
-        thread_dir = get_thread_dir(thread_key)
-        query_processors[thread_key] = QueryProcessor(thread_dir)
-    
-    return query_processors[thread_key]
+    return query_processor_cache.get(thread_key)
 
 
 def list_available_threads() -> List[str]:
@@ -77,6 +125,110 @@ def list_available_threads() -> List[str]:
     except Exception as e:
         logger.error(f"Error listing threads: {e}")
         return []
+
+
+def validate_request_parameters(prompt: str, url: str, existing_thread: str) -> Optional[str]:
+    """Validate query request parameters.
+    
+    Args:
+        prompt: User query
+        url: Thread URL
+        existing_thread: Existing thread key
+        
+    Returns:
+        Error message if validation fails, None if valid
+    """
+    if not prompt or not prompt.strip():
+        return "Prompt is required"
+    
+    if not url and not existing_thread:
+        return "Either URL or existing thread must be provided"
+    
+    if url and existing_thread:
+        return "Cannot specify both URL and existing thread"
+    
+    return None
+
+
+
+
+def process_existing_thread(thread_key: str, reprocess: bool, message_queue, progress_update) -> tuple:
+    """Process an existing thread with optional reprocessing.
+    
+    Args:
+        thread_key: Thread identifier
+        reprocess: Whether to reprocess the thread
+        message_queue: Queue for progress messages
+        progress_update: Progress callback function
+        
+    Returns:
+        Tuple of (thread_key, processing_results)
+    """
+    thread_dir = get_thread_dir(thread_key)
+    if not os.path.exists(thread_dir):
+        message_queue.put(f"Error: Thread '{thread_key}' not found. Please delete and recreate with URL.\n")
+        return thread_key, None
+    
+    if reprocess:
+        message_queue.put(f"Reprocessing existing thread: {thread_key}\n")
+        message_queue.put(f"Re-parsing HTML files and rebuilding indexes...\n\n")
+        
+        # Reprocess existing thread (no re-download)
+        thread_key, processing_results = thread_processor.reprocess_existing_thread(thread_key, progress_update)
+        
+        message_queue.put(f"Thread reprocessed successfully!\n")
+        message_queue.put(f"Posts processed: {processing_results.get('posts_count', 0)}\n")
+    else:
+        # Use existing thread as-is
+        message_queue.put(f"Using existing thread: {thread_key}\n")
+        processing_results = {
+            'thread_key': thread_key,
+            'from_cache': True
+        }
+    
+    return thread_key, processing_results
+
+
+def process_new_thread(url: str, reprocess: bool, message_queue, progress_update) -> tuple:
+    """Process a new thread from URL.
+    
+    Args:
+        url: Thread URL
+        reprocess: Force refresh flag
+        message_queue: Queue for progress messages
+        progress_update: Progress callback function
+        
+    Returns:
+        Tuple of (thread_key, processing_results)
+    """
+    normalized_url = normalize_url(url)
+    message_queue.put(f"Processing thread from URL: {normalized_url}\n")
+    message_queue.put(f"This may take several minutes for large threads...\n\n")
+    
+    # Process the thread
+    thread_key, processing_results = thread_processor.process_thread(
+        normalized_url, force_refresh=reprocess, progress_callback=progress_update
+    )
+    
+    message_queue.put(f"Thread processed: {thread_key}\n")
+    message_queue.put(f"Posts processed: {processing_results.get('posts_count', 0)}\n")
+    
+    # Show analytics preview if available
+    analytics_summary = processing_results.get('analytics_summary', {})
+    if analytics_summary:
+        overview = analytics_summary.get('overview', {})
+        activity = analytics_summary.get('activity', {})
+        
+        message_queue.put(f"Participants: {overview.get('participants', 'Unknown')}\n")
+        message_queue.put(f"Pages: {overview.get('pages', 'Unknown')}\n")
+        
+        most_active = activity.get('most_active_author', {})
+        if most_active.get('name'):
+            message_queue.put(f"Most active: {most_active['name']} ({most_active.get('post_count', 0)} posts)\n")
+    
+    message_queue.put("\n" + "="*50 + "\n\n")
+    
+    return thread_key, processing_results
 
 
 def validate_thread_key(thread_key: str) -> bool:
@@ -121,12 +273,10 @@ def ask():
         existing_thread = data.get("existing_thread", "").strip()
         reprocess = data.get("reprocess", False)  # Changed from "refresh" to "reprocess"
         
-        # Validation
-        if not prompt:
-            return Response("Error: Prompt is required", status=400, mimetype="text/plain")
-        
-        if not url and not existing_thread:
-            return Response("Error: Either URL or existing thread must be provided", status=400, mimetype="text/plain")
+        # Validation using helper function
+        validation_error = validate_request_parameters(prompt, url, existing_thread)
+        if validation_error:
+            return Response(f"Error: {validation_error}", status=400, mimetype="text/plain")
         
         # When using existing thread, URL should not be provided
         if existing_thread and url:
@@ -140,7 +290,7 @@ def ask():
         if existing_thread and not validate_thread_key(existing_thread):
             return Response("Error: Invalid thread key", status=400, mimetype="text/plain")
         
-        logger.info(f"Processing query: '{prompt[:50]}...' {'(reprocess)' if reprocess else ''}")
+        logger.info(f"Processing query: '{prompt[:MAX_LOGGED_PROMPT_LENGTH]}...' {'(reprocess)' if reprocess else ''}")
         
         def generate_response():
             # This will be our main response generator

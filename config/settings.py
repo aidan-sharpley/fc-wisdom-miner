@@ -88,7 +88,12 @@ ANALYTICS_RETENTION_DAYS = 30
 # UI progress and feedback settings
 PROGRESS_UPDATE_INTERVAL = 0.1  # Seconds between progress updates
 MAX_PROMPT_LENGTH = 1000  # Maximum characters in user prompts
+MAX_LOGGED_PROMPT_LENGTH = 50  # Maximum characters to log from prompts
 UI_TIMEOUT_SECONDS = 120  # UI timeout for long operations
+
+# Cache management settings
+QUERY_PROCESSOR_CACHE_SIZE = 50  # Maximum number of query processors to cache
+EMBEDDING_CACHE_SIZE_MB = 150  # Maximum embedding cache size in MB
 
 # ==================== Forum Scraping Settings ====================
 
