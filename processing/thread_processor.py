@@ -184,12 +184,33 @@ class ThreadProcessor:
             return self._reprocess_from_posts_json(thread_key, progress_callback)
 
         try:
+            # Initialize scraper for HTML reprocessing
+            # Try to get original URL from metadata, otherwise use generic config
+            metadata_file = os.path.join(thread_dir, "metadata.json")
+            original_url = ""
+            
+            if os.path.exists(metadata_file):
+                try:
+                    from utils.file_utils import safe_read_json
+                    metadata = safe_read_json(metadata_file)
+                    if metadata and 'base_url' in metadata:
+                        original_url = metadata['base_url']
+                        logger.info(f"Found original URL in metadata: {original_url}")
+                except Exception as e:
+                    logger.warning(f"Could not read original URL from metadata: {e}")
+            
+            from config.platform_config import get_platform_config
+            platform_config = get_platform_config(original_url)
+            self.scraper = ForumScraper(platform_config=platform_config)
+            logger.info(f"Initialized scraper for reprocessing with {'original' if original_url else 'generic'} platform config")
+            
             # Step 1: Re-parse HTML files to extract raw posts
             logger.info("Re-parsing saved HTML files")
-            raw_posts = self._reprocess_html_files(html_dir)
+            raw_posts = self._reprocess_html_files(html_dir, original_url)
 
             if not raw_posts:
-                raise ValueError("No posts found in HTML files during reprocessing")
+                logger.warning("No posts found in HTML files during reprocessing, falling back to posts.json method")
+                return self._reprocess_from_posts_json(thread_key, progress_callback)
 
             logger.info(f"Extracted {len(raw_posts)} raw posts from HTML files")
 
@@ -267,12 +288,17 @@ class ThreadProcessor:
         except Exception as e:
             logger.error(f"Error reprocessing thread {thread_key}: {e}")
             raise
+        finally:
+            # Clean up scraper instance to avoid memory leaks
+            if hasattr(self, 'scraper') and self.scraper:
+                self.scraper = None
 
-    def _reprocess_html_files(self, html_dir: str) -> List[Dict]:
+    def _reprocess_html_files(self, html_dir: str, base_url: str = None) -> List[Dict]:
         """Re-parse HTML files to extract raw posts.
 
         Args:
             html_dir: Directory containing saved HTML files
+            base_url: Optional base URL for generating post URLs
 
         Returns:
             List of raw post dictionaries
@@ -303,7 +329,7 @@ class ThreadProcessor:
 
                 soup = BeautifulSoup(html_content, "html.parser")
                 posts = self.scraper._extract_posts(
-                    soup, page_num, global_post_position
+                    soup, page_num, global_post_position, page_url=base_url
                 )
 
                 if posts:
@@ -313,6 +339,9 @@ class ThreadProcessor:
 
             except Exception as e:
                 logger.error(f"Error reprocessing HTML file {html_file}: {e}")
+                # Log more details for debugging
+                logger.debug(f"HTML file size: {len(html_content) if 'html_content' in locals() else 'unknown'} characters")
+                logger.debug(f"Scraper platform config: {self.scraper.platform_config.get('platform', {}).get('name', 'Unknown') if self.scraper else 'No scraper'}")
                 continue
 
         logger.info(f"Reprocessed HTML files: extracted {len(all_raw_posts)} raw posts")

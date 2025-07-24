@@ -817,6 +817,10 @@
     const promptInput = document.getElementById("prompt");
     const reprocessSection = document.getElementById("reprocess-section");
     
+    // Global thread state management
+    let currentSelectedThread = null;
+    let availableThreads = [];
+    
     // Status Panel Elements
     const statusPanel = document.getElementById("status-panel");
     const statusSpinner = document.getElementById("status-spinner");
@@ -861,6 +865,120 @@
     // Progress tracking
     let currentStep = 0;
     const steps = ['fetch', 'analyze', 'embed', 'search', 'respond'];
+
+    // Unified Thread Management Functions
+    function updateAllThreadSelections(selectedThread = null) {
+      // Update main thread selection
+      threadSelect.value = selectedThread || '';
+      
+      // Update analytics thread selection
+      threadAnalyticsSelect.value = selectedThread || '';
+      
+      // Update summary thread selection
+      threadSummarySelect.value = selectedThread || '';
+      
+      // Update current state
+      currentSelectedThread = selectedThread;
+      
+      // Update button states
+      deleteBtn.disabled = !selectedThread;
+      loadAnalyticsBtn.disabled = !selectedThread;
+      generateSummaryBtn.disabled = !selectedThread;
+      
+      // Update UI visibility
+      if (selectedThread) {
+        urlSection.classList.add('hidden');
+        reprocessSection.classList.remove('hidden');
+        showStatusMessage(`Thread '${selectedThread}' selected across all sections.`, 'success');
+      } else {
+        urlSection.classList.remove('hidden');
+        reprocessSection.classList.add('hidden');
+        hideStatusMessage();
+        
+        // Reset analytics and summary sections
+        showAnalyticsNoData();
+        showSummaryNoData();
+        destroyCharts();
+      }
+    }
+
+    function addThreadToAllSelections(threadKey) {
+      if (!threadKey || availableThreads.includes(threadKey)) return;
+      
+      // Add to available threads list
+      availableThreads.push(threadKey);
+      
+      // Create option element
+      const option = document.createElement('option');
+      option.value = threadKey;
+      option.textContent = threadKey;
+      
+      // Add to all select elements
+      threadSelect.appendChild(option.cloneNode(true));
+      threadAnalyticsSelect.appendChild(option.cloneNode(true));
+      threadSummarySelect.appendChild(option.cloneNode(true));
+    }
+
+    function removeThreadFromAllSelections(threadKey) {
+      if (!threadKey) return;
+      
+      // Remove from available threads list
+      availableThreads = availableThreads.filter(t => t !== threadKey);
+      
+      // Remove from all select elements
+      [threadSelect, threadAnalyticsSelect, threadSummarySelect].forEach(select => {
+        const option = select.querySelector(`option[value="${threadKey}"]`);
+        if (option) option.remove();
+      });
+      
+      // If this was the selected thread, clear selection
+      if (currentSelectedThread === threadKey) {
+        updateAllThreadSelections(null);
+      }
+    }
+
+    async function refreshThreadLists() {
+      try {
+        const response = await fetch('/threads');
+        const data = await response.json();
+        
+        // Clear all selections
+        [threadSelect, threadAnalyticsSelect, threadSummarySelect].forEach(select => {
+          // Keep the default option, remove others
+          const options = select.querySelectorAll('option:not([value=""])');
+          options.forEach(option => option.remove());
+        });
+        
+        // Extract thread keys from thread summaries
+        const threads = data.threads || [];
+        availableThreads = threads.map(thread => thread.thread_key);
+        
+        // Add threads to all selections
+        availableThreads.forEach(threadKey => {
+          const option = document.createElement('option');
+          option.value = threadKey;
+          option.textContent = threadKey;
+          
+          threadSelect.appendChild(option.cloneNode(true));
+          threadAnalyticsSelect.appendChild(option.cloneNode(true));
+          threadSummarySelect.appendChild(option.cloneNode(true));
+        });
+        
+      } catch (error) {
+        console.error('Error refreshing thread lists:', error);
+      }
+    }
+
+    function selectNewThread(threadKey) {
+      // Add the thread if it doesn't exist
+      addThreadToAllSelections(threadKey);
+      
+      // Select it across all sections
+      updateAllThreadSelections(threadKey);
+      
+      // Clear URL input since we're now using an existing thread
+      urlInput.value = '';
+    }
 
     // Enhanced UI Functions
     function showStatusPanel() {
@@ -935,13 +1053,10 @@
     // Enhanced reset function
     function resetUI() {
       urlInput.value = "";
-      threadSelect.value = "";
       promptInput.value = "";
-      deleteBtn.disabled = true;
       
-      // Show URL section, hide reprocess section by default
-      urlSection.classList.remove('hidden');
-      reprocessSection.classList.add('hidden');
+      // Reset thread selections across all sections
+      updateAllThreadSelections(null);
       
       hideStatusPanel();
       hideResponsePanel();
@@ -1300,39 +1415,25 @@
       }
     }
 
-    // Thread selection handler
-    threadSelect.addEventListener("change", () => {
-      const selected = threadSelect.value;
-      deleteBtn.disabled = !selected;
+    // Thread selection handler - unified across all dropdowns
+    function handleThreadSelectionChange(selectElement) {
+      const selected = selectElement.value;
+      updateAllThreadSelections(selected);
+    }
 
-      if (selected) {
-        // Thread selected - hide URL section, show reprocess option
-        urlInput.value = "";
-        urlSection.classList.add('hidden');
-        reprocessSection.classList.remove('hidden');
-        showStatusMessage(`Thread '${selected}' selected and ready for analysis.`, 'success');
-      } else {
-        // No thread selected - show URL section, hide reprocess option
-        urlSection.classList.remove('hidden');
-        reprocessSection.classList.add('hidden');
-        hideStatusMessage();
-      }
-    });
+    threadSelect.addEventListener("change", () => handleThreadSelectionChange(threadSelect));
 
     // URL input handler
     urlInput.addEventListener("input", () => {
       if (urlInput.value.trim() !== "") {
-        // URL entered - clear thread selection, hide reprocess option
-        threadSelect.value = "";
-        deleteBtn.disabled = true;
-        reprocessSection.classList.add('hidden');
-        hideStatusMessage();
+        // URL entered - clear all thread selections
+        updateAllThreadSelections(null);
       }
     });
 
     // Delete thread handler
     deleteBtn.addEventListener("click", async () => {
-      const thread_key = threadSelect.value;
+      const thread_key = currentSelectedThread;
       if (!thread_key) return;
 
       if (!confirm(`Are you sure you want to delete the thread '${thread_key}'? This cannot be undone.`)) {
@@ -1353,10 +1454,7 @@
           showStatusMessage(`Error: ${resultText}`, "error");
         } else {
           showStatusMessage("Thread deleted successfully!", "success");
-          const optionToRemove = threadSelect.querySelector(`option[value="${thread_key}"]`);
-          if (optionToRemove) {
-            optionToRemove.remove();
-          }
+          removeThreadFromAllSelections(thread_key);
           setTimeout(() => resetUI(), 2000);
         }
       } catch (err) {
@@ -1370,19 +1468,11 @@
     });
 
     // Analytics event handlers
-    threadAnalyticsSelect.addEventListener("change", () => {
-      const selected = threadAnalyticsSelect.value;
-      loadAnalyticsBtn.disabled = !selected;
-      if (!selected) {
-        destroyCharts();
-        showAnalyticsNoData();
-      }
-    });
+    threadAnalyticsSelect.addEventListener("change", () => handleThreadSelectionChange(threadAnalyticsSelect));
 
     loadAnalyticsBtn.addEventListener("click", () => {
-      const selectedThread = threadAnalyticsSelect.value;
-      if (selectedThread) {
-        loadThreadAnalytics(selectedThread);
+      if (currentSelectedThread) {
+        loadThreadAnalytics(currentSelectedThread);
       }
     });
 
@@ -1392,19 +1482,12 @@
     });
 
     // Summarization event handlers
-    threadSummarySelect.addEventListener("change", () => {
-      const selected = threadSummarySelect.value;
-      generateSummaryBtn.disabled = !selected;
-      if (!selected) {
-        showSummaryNoData();
-      }
-    });
+    threadSummarySelect.addEventListener("change", () => handleThreadSelectionChange(threadSummarySelect));
 
     generateSummaryBtn.addEventListener("click", () => {
-      const selectedThread = threadSummarySelect.value;
       const maxPosts = maxPostsSelect.value;
-      if (selectedThread) {
-        generateThreadSummary(selectedThread, maxPosts);
+      if (currentSelectedThread) {
+        generateThreadSummary(currentSelectedThread, maxPosts);
       }
     });
 
@@ -1473,6 +1556,7 @@
         let receivedText = "";
         let embeddingStarted = false;
         let indexBuildingStarted = false;
+        let extractedThreadKey = null;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1480,7 +1564,7 @@
           
           const chunk = decoder.decode(value, { stream: true });
           
-          // Check for progress messages
+          // Check for progress messages and thread key extraction
           const lines = chunk.split('\n');
           for (const line of lines) {
             if (line.startsWith('PROGRESS: ')) {
@@ -1521,6 +1605,25 @@
             // Regular content line
             if (line.trim()) {
               receivedText += line + '\n';
+              
+              // Extract thread key from response content
+              if (!extractedThreadKey) {
+                // Look for patterns like "Thread processed: thread-key-123"
+                const threadKeyMatch = line.match(/Thread processed: ([a-zA-Z0-9_-]+)/);
+                if (threadKeyMatch) {
+                  extractedThreadKey = threadKeyMatch[1];
+                }
+                // Also check for "Using existing thread: thread-key" pattern
+                const existingThreadMatch = line.match(/Using existing thread: ([a-zA-Z0-9_-]+)/);
+                if (existingThreadMatch) {
+                  extractedThreadKey = existingThreadMatch[1];
+                }
+                // Check for reprocessed thread pattern
+                const reprocessedMatch = line.match(/Thread reprocessed successfully!.*?([a-zA-Z0-9_-]+)/);
+                if (reprocessedMatch) {
+                  extractedThreadKey = reprocessedMatch[1];
+                }
+              }
             }
           }
           
@@ -1538,6 +1641,15 @@
         updateProgress(4, "Analysis complete!");
         showStatusMessage("Thread analysis completed successfully!", "success");
         
+        // If we processed a URL and got a thread key, auto-select it
+        if (url && extractedThreadKey) {
+          // Add delay to ensure backend processing is complete
+          setTimeout(() => {
+            selectNewThread(extractedThreadKey);
+            showStatusMessage(`Thread '${extractedThreadKey}' is now selected and ready for analytics and summarization.`, 'success');
+          }, 1000);
+        }
+        
         // Show sample analytics (would be real data in actual implementation)
         updateAnalyticsPreview({
           posts: receivedText.split('\n').length,
@@ -1547,7 +1659,9 @@
         });
 
         setTimeout(() => {
-          hideStatusMessage();
+          if (!extractedThreadKey) { // Only hide if we're not showing the thread selection message
+            hideStatusMessage();
+          }
         }, 3000);
 
       } catch (err) {
@@ -1561,6 +1675,13 @@
 
     // Initialize UI
     resetUI();
+    
+    // Initialize available threads from server-rendered content
+    document.addEventListener('DOMContentLoaded', () => {
+      // Extract available threads from the dropdowns
+      const options = threadSelect.querySelectorAll('option:not([value=""])');
+      availableThreads = Array.from(options).map(option => option.value);
+    });
   </script>
 </body>
 
