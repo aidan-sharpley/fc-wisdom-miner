@@ -112,10 +112,18 @@ class QueryProcessor:
             
             # Step 3: Fallback to semantic search for non-analytical queries
             logger.info("Routing query to semantic search engine")
-            search_results, search_metadata = self.search_engine.search(
-                query, 
-                top_k=query_analysis.get('suggested_approach') == 'comprehensive' and 15 or 10
-            )
+            
+            # Determine search depth based on query type
+            search_depth = 10  # Default
+            if query_analysis.get('suggested_approach') == 'comprehensive':
+                search_depth = 15
+            elif self._is_product_recommendation_query(query, query_analysis):
+                search_depth = 25  # Cast wider net for product recommendations
+                logger.info("Product recommendation detected - using expanded search")
+            
+            # Use expanded query for better search results
+            search_query = query_analysis.get('expanded_query', query)
+            search_results, search_metadata = self.search_engine.search(search_query, top_k=search_depth)
             
             # Step 4: Build context
             context = self._build_context(search_results, query_analysis)
@@ -665,6 +673,36 @@ class QueryProcessor:
             response_parts.append(f"\n**First post preview:**\n> {first_post_content}\n")
         
         return ''.join(response_parts)
+    
+    def _is_product_recommendation_query(self, query: str, query_analysis: Dict) -> bool:
+        """Check if this is a product recommendation query that needs expanded search.
+        
+        Args:
+            query: Original query string
+            query_analysis: Query analysis results
+            
+        Returns:
+            True if this is a product recommendation query
+        """
+        query_lower = query.lower()
+        
+        # Product recommendation indicators
+        product_indicators = [
+            'recommend', 'suggest', 'best', 'good', 'which', 'what',
+            'most often', 'most popular', 'commonly used', 'favorite'
+        ]
+        
+        # Product types
+        product_types = [
+            'glass', 'piece', 'hook', 'j-hook', 'j hook', 'vapor', 'vape',
+            'device', 'equipment', 'tool', 'product'
+        ]
+        
+        # Check if query contains both recommendation language and product types
+        has_recommendation = any(indicator in query_lower for indicator in product_indicators)
+        has_product = any(product_type in query_lower for product_type in product_types)
+        
+        return has_recommendation and has_product
 
 
 __all__ = ['QueryProcessor']

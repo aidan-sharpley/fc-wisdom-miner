@@ -46,7 +46,15 @@ class ConversationalQueryProcessor:
             'best': 'best post highest rated most popular top engagement community favorite',
             'top': 'top post highest rated most popular best engagement community favorite',
             'good': 'good post well received highly rated popular community favorite',
-            'post': 'specific post content author engagement rating community response'
+            'post': 'specific post content author engagement rating community response',
+            
+            # Product recommendation expansions
+            'recommend': 'recommend suggest advice best choice favorite buy purchase love prefer',
+            'glass': 'glass piece j-hook j hook TAG GVB good vibes boro oregon glass chameleon glass thick ass glass hydro hook',
+            'piece': 'glass piece j-hook j hook hooker vapor piece water piece cooling piece TAG GVB',
+            'hook': 'j-hook j hook hooker vapor hook water hook cooling hook TAG GVB good vibes boro hydro hook',
+            'buy': 'buy purchase recommend suggest best choice favorite where to buy link store',
+            'which': 'which what recommend suggest best choice favorite popular commonly used most often'
         }
         
         # Vague query indicators
@@ -224,14 +232,16 @@ class ConversationalQueryProcessor:
         query_lower = original_query.lower()
         expanded_parts = [original_query]
         
-        # Smart expansion for vague engagement queries
-        expansion_applied = False
+        # Smart expansion for recommendation and engagement queries
+        expansion_applied = []
         for key, expansion in self.expansion_patterns.items():
-            if key in query_lower and not expansion_applied:
-                logger.info(f"Auto-expanding vague query '{original_query}' with engagement terms")
+            if key in query_lower:
+                logger.info(f"Auto-expanding query '{original_query}' with '{key}' terms")
                 expanded_parts.append(expansion)
-                expansion_applied = True
-                break
+                expansion_applied.append(key)
+                # Allow multiple expansions for better coverage
+                if len(expansion_applied) >= 3:  # Limit to avoid over-expansion
+                    break
         
         # Detect and enhance vague queries automatically
         if analysis['is_vague'] and not expansion_applied:
@@ -366,6 +376,14 @@ class AnalyticalSearchStrategy:
                 'top_k': 15,
                 'expand_context': True,
                 'approach': 'comprehensive'
+            })
+        
+        if 'recommendations' in analysis.get('analytical_intent', []):
+            # For recommendation queries, cast wider net to find all product mentions
+            strategy.update({
+                'top_k': 25,
+                'expand_context': True,
+                'approach': 'product_recommendation'
             })
         
         if 'statistics' in analysis.get('analytical_intent', []):
