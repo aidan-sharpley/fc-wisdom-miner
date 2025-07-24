@@ -692,10 +692,10 @@ class QueryProcessor:
             'most often', 'most popular', 'commonly used', 'favorite'
         ]
         
-        # Product types
+        # Product types (generic indicators, not specific to any domain)
         product_types = [
-            'glass', 'piece', 'hook', 'j-hook', 'j hook', 'vapor', 'vape',
-            'device', 'equipment', 'tool', 'product'
+            'piece', 'device', 'equipment', 'tool', 'product', 'item', 'gear',
+            'model', 'brand', 'type', 'version', 'unit', 'system'
         ]
         
         # Check if query contains both recommendation language and product types
