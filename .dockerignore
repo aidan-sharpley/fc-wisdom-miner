@@ -1,0 +1,47 @@
+# Git files
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs (but preserve tmp structure for Docker)
+*.log
+app_output.log
+
+# Docker files (don't copy into image)
+Dockerfile
+.dockerignore
+docker-*.sh
+
+# Documentation
+README.md
+*.md
+
+# Large cache files (will be regenerated)
+tmp/embeddings_cache/*
+
+# Keep tmp directory structure but exclude large files
+tmp/**/*.pkl
+tmp/**/*.bin
+tmp/**/cache_metadata.json

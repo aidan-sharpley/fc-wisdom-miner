@@ -771,13 +771,19 @@ if __name__ == "__main__":
         logger.info("Application ready!")
         logger.info("="*60)
         
-        # Start the Flask application with production settings
+        # Docker-friendly Flask configuration
+        debug_mode = os.environ.get("FLASK_ENV") == "development"
+        port = int(os.environ.get("PORT", 5000))
+        
+        logger.info(f"Starting Flask server on 0.0.0.0:{port} (debug={debug_mode})")
+        
+        # Start the Flask application with Docker-compatible settings
         app.run(
             host="0.0.0.0", 
-            port=8080, 
-            debug=False,  # Never enable debug in production
+            port=port,
+            debug=debug_mode,
             threaded=True,
-            use_reloader=False  # Prevent double startup in development
+            use_reloader=debug_mode  # Enable hot reload only in development
         )
         
     except Exception as e:
