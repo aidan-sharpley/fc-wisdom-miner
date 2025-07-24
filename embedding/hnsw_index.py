@@ -111,12 +111,13 @@ class HNSWIndex:
             'last_updated': time.time(),
         }
 
-    def add_embeddings(self, embeddings: List[np.ndarray], post_hashes: List[str]):
+    def add_embeddings(self, embeddings: List[np.ndarray], post_hashes: List[str], progress_callback=None):
         """Add embeddings to the index.
 
         Args:
             embeddings: List of embedding arrays
             post_hashes: List of corresponding post hashes
+            progress_callback: Optional callback for progress updates
         """
         if len(embeddings) != len(post_hashes):
             raise ValueError('Number of embeddings must match number of post hashes')
@@ -134,14 +135,26 @@ class HNSWIndex:
         indices = list(range(start_idx, start_idx + len(embeddings)))
 
         if len(embeddings) > 1000:  # Show progress for large datasets
-            from tqdm import tqdm
             batch_size = 500
-            with tqdm(total=len(embeddings), desc="Building HNSW index", unit="embeddings") as pbar:
+            if progress_callback:
+                # Use callback for web progress updates
                 for i in range(0, len(embeddings), batch_size):
                     batch_embeddings = embedding_matrix[i:i + batch_size]
                     batch_indices = indices[i:i + batch_size]
                     self.index.add_items(batch_embeddings, batch_indices)
-                    pbar.update(len(batch_embeddings))
+                    
+                    completed = min(i + batch_size, len(embeddings))
+                    progress_percent = (completed / len(embeddings)) * 100
+                    progress_callback(f"Building search index: {completed}/{len(embeddings)} ({progress_percent:.1f}%)")
+            else:
+                # Use tqdm for console progress
+                from tqdm import tqdm
+                with tqdm(total=len(embeddings), desc="Building HNSW index", unit="embeddings") as pbar:
+                    for i in range(0, len(embeddings), batch_size):
+                        batch_embeddings = embedding_matrix[i:i + batch_size]
+                        batch_indices = indices[i:i + batch_size]
+                        self.index.add_items(batch_embeddings, batch_indices)
+                        pbar.update(len(batch_embeddings))
         else:
             self.index.add_items(embedding_matrix, indices)
 
@@ -253,12 +266,13 @@ class HNSWIndex:
         except Exception as e:
             logger.error(f'Error removing embedding: {e}')
 
-    def rebuild_index(self, embeddings: List[np.ndarray], post_hashes: List[str]):
+    def rebuild_index(self, embeddings: List[np.ndarray], post_hashes: List[str], progress_callback=None):
         """Rebuild the entire index from scratch.
 
         Args:
             embeddings: All embeddings to include
             post_hashes: Corresponding post hashes
+            progress_callback: Optional callback for progress updates
         """
         logger.info('Rebuilding HNSW index from scratch')
 
@@ -267,7 +281,7 @@ class HNSWIndex:
 
         # Add all embeddings
         if embeddings:
-            self.add_embeddings(embeddings, post_hashes)
+            self.add_embeddings(embeddings, post_hashes, progress_callback)
 
         # Save immediately
         self.save()

@@ -61,7 +61,7 @@ class EmbeddingManager:
     @monitor_embedding_operation
     def get_embeddings(
         self, texts: Union[str, List[str]], use_cache: bool = True, 
-        preprocess: bool = True
+        preprocess: bool = True, progress_callback=None
     ) -> Union[np.ndarray, List[np.ndarray]]:
         """Get embeddings for one or more texts with optional preprocessing.
 
@@ -69,6 +69,7 @@ class EmbeddingManager:
             texts: Single text string or list of text strings
             use_cache: Whether to use cached embeddings
             preprocess: Whether to apply domain-specific preprocessing
+            progress_callback: Optional callback for progress updates
 
         Returns:
             Single embedding array or list of embedding arrays
@@ -106,7 +107,7 @@ class EmbeddingManager:
         # Generate embeddings for uncached texts
         if uncached_texts:
             start_time = time.time()
-            new_embeddings = self._generate_embeddings_batch(uncached_texts)
+            new_embeddings = self._generate_embeddings_batch(uncached_texts, progress_callback)
             processing_time = time.time() - start_time
 
             self.stats["total_processing_time"] += processing_time
@@ -127,11 +128,12 @@ class EmbeddingManager:
 
         return embeddings[0] if is_single else embeddings
 
-    def _generate_embeddings_batch(self, texts: List[str]) -> List[np.ndarray]:
+    def _generate_embeddings_batch(self, texts: List[str], progress_callback=None) -> List[np.ndarray]:
         """Generate embeddings for a batch of texts.
 
         Args:
             texts: List of texts to embed
+            progress_callback: Optional callback for progress updates
 
         Returns:
             List of embedding arrays
@@ -139,14 +141,26 @@ class EmbeddingManager:
         embeddings = []
         total_batches = (len(texts) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
 
-        # Process in batches with progress bar
-        with tqdm(total=total_batches, desc="Generating embeddings", unit="batch") as pbar:
+        # Process in batches with progress updates
+        if progress_callback and len(texts) > 50:  # Only send detailed updates for large batches
             for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
                 batch = texts[i : i + EMBEDDING_BATCH_SIZE]
                 batch_embeddings = self._generate_single_batch(batch)
                 embeddings.extend(batch_embeddings)
-                pbar.update(1)
-                pbar.set_postfix({"embeddings": len(embeddings), "total": len(texts)})
+                
+                # Send progress update
+                completed = len(embeddings)
+                progress_percent = (completed / len(texts)) * 100
+                progress_callback(f"Generating embeddings: {completed}/{len(texts)} ({progress_percent:.1f}%)")
+        else:
+            # Use tqdm for console progress when no callback
+            with tqdm(total=total_batches, desc="Generating embeddings", unit="batch") as pbar:
+                for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+                    batch = texts[i : i + EMBEDDING_BATCH_SIZE]
+                    batch_embeddings = self._generate_single_batch(batch)
+                    embeddings.extend(batch_embeddings)
+                    pbar.update(1)
+                    pbar.set_postfix({"embeddings": len(embeddings), "total": len(texts)})
 
         return embeddings
 

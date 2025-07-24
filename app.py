@@ -153,70 +153,114 @@ def ask():
         logger.info(f"Processing query: '{prompt[:50]}...' {'(reprocess)' if reprocess else ''}")
         
         def generate_response():
-            try:
-                # Step 1: Process the thread (scraping, embedding, indexing)
-                if existing_thread:
-                    thread_key = existing_thread
+            # This will be our main response generator
+            import queue
+            import threading
+            
+            # Create a queue for progress messages
+            message_queue = queue.Queue()
+            processing_complete = threading.Event()
+            
+            # Progress callback to send updates via queue
+            def progress_update(message):
+                message_queue.put(f"PROGRESS: {message}\n")
+            
+            def process_thread_async():
+                try:
+                    # Do the actual thread processing in background
+                    nonlocal thread_key, processing_results
                     
-                    # Check if thread exists
-                    thread_dir = get_thread_dir(thread_key)
-                    if not os.path.exists(thread_dir):
-                        yield f"Error: Thread '{thread_key}' not found. Please delete and recreate with URL.\n"
-                        return
+                    if existing_thread:
+                        thread_key = existing_thread
+                        
+                        # Check if thread exists
+                        thread_dir = get_thread_dir(thread_key)
+                        if not os.path.exists(thread_dir):
+                            message_queue.put(f"Error: Thread '{thread_key}' not found. Please delete and recreate with URL.\n")
+                            return
+                        
+                        # Handle reprocess request
+                        if reprocess:
+                            message_queue.put(f"Reprocessing existing thread: {thread_key}\n")
+                            message_queue.put(f"Re-parsing HTML files and rebuilding indexes...\n\n")
+                            
+                            # Reprocess existing thread (no re-download)
+                            thread_key, processing_results = thread_processor.reprocess_existing_thread(thread_key, progress_update)
+                            
+                            message_queue.put(f"Thread reprocessed successfully!\n")
+                            message_queue.put(f"Posts processed: {processing_results.get('posts_count', 0)}\n")
+                        else:
+                            # Use existing thread as-is
+                            message_queue.put(f"Using existing thread: {thread_key}\n")
+                            
+                            # Load processing results
+                            processing_results = {
+                                'thread_key': thread_key,
+                                'from_cache': True
+                            }
                     
-                    # Handle reprocess request
-                    if reprocess:
-                        yield f"Reprocessing existing thread: {thread_key}\n"
-                        yield f"Re-parsing HTML files and rebuilding indexes...\n\n"
-                        
-                        # Reprocess existing thread (no re-download)
-                        thread_key, processing_results = thread_processor.reprocess_existing_thread(thread_key)
-                        
-                        yield f"Thread reprocessed successfully!\n"
-                        yield f"Posts processed: {processing_results.get('posts_count', 0)}\n"
                     else:
-                        # Use existing thread as-is
-                        yield f"Using existing thread: {thread_key}\n"
+                        # Process new thread from URL (download + process)
+                        normalized_url = normalize_url(url)
+                        message_queue.put(f"Creating new thread from: {normalized_url}\n")
+                        message_queue.put(f"Downloading and processing all pages...\n\n")
                         
-                        # Load processing results
-                        processing_results = {
-                            'thread_key': thread_key,
-                            'from_cache': True
-                        }
-                    
-                else:
-                    # Process new thread from URL (download + process)
-                    normalized_url = normalize_url(url)
-                    yield f"Creating new thread from: {normalized_url}\n"
-                    yield f"Downloading and processing all pages...\n\n"
-                    
-                    # Process the thread (includes downloading)
-                    thread_key, processing_results = thread_processor.process_thread(
-                        normalized_url, force_refresh=False
-                    )
-                    
-                    yield f"Thread processed: {thread_key}\n"
-                    yield f"Posts processed: {processing_results.get('posts_count', 0)}\n"
-                    
-                    # Show analytics preview if available
-                    analytics_summary = processing_results.get('analytics_summary', {})
-                    if analytics_summary:
-                        overview = analytics_summary.get('overview', {})
-                        activity = analytics_summary.get('activity', {})
+                        # Process the thread (includes downloading)
+                        thread_key, processing_results = thread_processor.process_thread(
+                            normalized_url, force_refresh=False, progress_callback=progress_update
+                        )
                         
-                        yield f"Participants: {overview.get('participants', 'Unknown')}\n"
-                        yield f"Pages: {overview.get('pages', 'Unknown')}\n"
+                        message_queue.put(f"Thread processed: {thread_key}\n")
+                        message_queue.put(f"Posts processed: {processing_results.get('posts_count', 0)}\n")
                         
-                        most_active = activity.get('most_active_author', {})
-                        if most_active.get('name'):
-                            yield f"Most active: {most_active['name']} ({most_active.get('post_count', 0)} posts)\n"
-                    
-                    yield "\n" + "="*50 + "\n\n"
+                        # Show analytics preview if available
+                        analytics_summary = processing_results.get('analytics_summary', {})
+                        if analytics_summary:
+                            overview = analytics_summary.get('overview', {})
+                            activity = analytics_summary.get('activity', {})
+                            
+                            message_queue.put(f"Participants: {overview.get('participants', 'Unknown')}\n")
+                            message_queue.put(f"Pages: {overview.get('pages', 'Unknown')}\n")
+                            
+                            most_active = activity.get('most_active_author', {})
+                            if most_active.get('name'):
+                                message_queue.put(f"Most active: {most_active['name']} ({most_active.get('post_count', 0)} posts)\n")
+                        
+                        message_queue.put("\n" + "="*50 + "\n\n")
+                
+                except Exception as e:
+                    message_queue.put(f"\n\nError: {str(e)}\n")
+                finally:
+                    processing_complete.set()
+            
+            # Start background processing
+            thread_key = None
+            processing_results = None
+            
+            processing_thread = threading.Thread(target=process_thread_async)
+            processing_thread.start()
+            
+            try:
+                # Yield messages from queue as they arrive
+                while not processing_complete.is_set() or not message_queue.empty():
+                    try:
+                        # Get message with timeout to allow checking if processing is complete
+                        message = message_queue.get(timeout=0.1)
+                        yield message
+                    except queue.Empty:
+                        continue
+                
+                # Wait for processing thread to complete
+                processing_thread.join()
+                
+                # Check if thread processing was successful
+                if not thread_key:
+                    yield "Error: Thread processing failed.\n"
+                    return
                 
                 # Step 2: Process the query
-                query_processor = get_query_processor(thread_key)
-                
                 yield f"Analyzing query and searching thread...\n\n"
+                query_processor = get_query_processor(thread_key)
                 
                 # Get streaming response
                 query_results = query_processor.process_query(prompt, stream=True)

@@ -853,26 +853,64 @@
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let receivedText = "";
-        let stepUpdated = false;
+        let embeddingStarted = false;
+        let indexBuildingStarted = false;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           
           const chunk = decoder.decode(value, { stream: true });
-          receivedText += chunk;
+          
+          // Check for progress messages
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('PROGRESS: ')) {
+              const progressMessage = line.substring(10); // Remove 'PROGRESS: '
+              
+              // Update progress based on the specific message
+              if (progressMessage.includes('Generating embeddings:')) {
+                if (!embeddingStarted) {
+                  updateProgress(2, "Generating embeddings...");
+                  showStatusMessage("Creating semantic embeddings for search...", "info");
+                  embeddingStarted = true;
+                }
+                // Extract progress from message like "Generating embeddings: 150/500 (30.0%)"
+                const match = progressMessage.match(/(\d+)\/(\d+) \((\d+\.?\d*)%\)/);
+                if (match) {
+                  const [, current, total, percent] = match;
+                  progressText.textContent = `Generating embeddings: ${current}/${total} (${percent}%)`;
+                }
+              } else if (progressMessage.includes('Building search index:')) {
+                if (!indexBuildingStarted) {
+                  updateProgress(3, "Building search index...");
+                  showStatusMessage("Building optimized search index...", "info");
+                  indexBuildingStarted = true;
+                }
+                // Extract progress from index building message
+                const match = progressMessage.match(/(\d+)\/(\d+) \((\d+\.?\d*)%\)/);
+                if (match) {
+                  const [, current, total, percent] = match;
+                  progressText.textContent = `Building search index: ${current}/${total} (${percent}%)`;
+                }
+              } else {
+                // General progress message
+                progressText.textContent = progressMessage;
+              }
+              continue; // Don't add progress messages to the response text
+            }
+            
+            // Regular content line
+            if (line.trim()) {
+              receivedText += line + '\n';
+            }
+          }
+          
           responseEl.textContent = receivedText;
           responseEl.scrollTop = responseEl.scrollHeight;
 
-          // Update progress based on content received
-          if (!stepUpdated && receivedText.length > 100) {
-            updateProgress(2, "Generating embeddings...");
-            showStatusMessage("Creating semantic embeddings for search...", "info");
-            stepUpdated = true;
-          } else if (!stepUpdated && receivedText.length > 500) {
-            updateProgress(3, "Searching and ranking...");
-            showStatusMessage("Finding relevant posts and ranking results...", "info");
-          } else if (!stepUpdated && receivedText.length > 1000) {
+          // Update progress based on content phases
+          if (receivedText.includes("Analyzing query and searching thread")) {
             updateProgress(4, "Generating response...");
             showStatusMessage("Analyzing content and generating insights...", "info");
           }

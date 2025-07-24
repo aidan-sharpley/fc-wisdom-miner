@@ -39,12 +39,13 @@ class ThreadProcessor:
             "average_processing_time": 0,
         }
 
-    def process_thread(self, url: str, force_refresh: bool = False) -> Tuple[str, Dict]:
+    def process_thread(self, url: str, force_refresh: bool = False, progress_callback=None) -> Tuple[str, Dict]:
         """Process a complete forum thread.
 
         Args:
             url: Thread URL to process
             force_refresh: Force re-scraping even if thread exists
+            progress_callback: Optional callback function for progress updates
 
         Returns:
             Tuple of (thread_key, processing_results)
@@ -82,12 +83,16 @@ class ThreadProcessor:
 
             # Step 4: Generate embeddings
             logger.info(f"Generating embeddings for {len(processed_posts)} posts")
-            embeddings = self._generate_embeddings(processed_posts)
+            if progress_callback:
+                progress_callback(f"Generating embeddings for {len(processed_posts)} posts...")
+            embeddings = self._generate_embeddings(processed_posts, progress_callback)
 
             # Step 5: Build/update search index
             logger.info("Building search index")
+            if progress_callback:
+                progress_callback("Building search index...")
             search_index = self._build_search_index(
-                thread_dir, processed_posts, embeddings
+                thread_dir, processed_posts, embeddings, progress_callback
             )
 
             # Step 6: Generate analytics
@@ -126,11 +131,12 @@ class ThreadProcessor:
             logger.error(f"Error processing thread {thread_key}: {e}")
             raise
 
-    def reprocess_existing_thread(self, thread_key: str) -> Tuple[str, Dict]:
+    def reprocess_existing_thread(self, thread_key: str, progress_callback=None) -> Tuple[str, Dict]:
         """Reprocess an existing thread by re-parsing saved HTML files with new optimizations.
 
         Args:
             thread_key: Thread identifier
+            progress_callback: Optional callback function for progress updates
 
         Returns:
             Tuple of (thread_key, processing_results)
@@ -150,7 +156,7 @@ class ThreadProcessor:
             logger.warning(
                 f"No HTML files found for {thread_key}, using existing posts data"
             )
-            return self._reprocess_from_posts_json(thread_key)
+            return self._reprocess_from_posts_json(thread_key, progress_callback)
 
         try:
             # Step 1: Re-parse HTML files to extract raw posts
@@ -173,12 +179,16 @@ class ThreadProcessor:
 
             # Step 3: Generate embeddings with current embedding strategy
             logger.info(f"Generating embeddings for {len(processed_posts)} posts")
-            embeddings = self._generate_embeddings(processed_posts)
+            if progress_callback:
+                progress_callback(f"Regenerating embeddings for {len(processed_posts)} posts...")
+            embeddings = self._generate_embeddings(processed_posts, progress_callback)
 
             # Step 4: Build/update search index
             logger.info("Rebuilding search index")
+            if progress_callback:
+                progress_callback("Rebuilding search index...")
             search_index = self._build_search_index(
-                thread_dir, processed_posts, embeddings
+                thread_dir, processed_posts, embeddings, progress_callback
             )
 
             # Step 5: Generate analytics with current analytics system
@@ -283,7 +293,7 @@ class ThreadProcessor:
         logger.info(f"Reprocessed HTML files: extracted {len(all_raw_posts)} raw posts")
         return all_raw_posts
 
-    def _reprocess_from_posts_json(self, thread_key: str) -> Tuple[str, Dict]:
+    def _reprocess_from_posts_json(self, thread_key: str, progress_callback=None) -> Tuple[str, Dict]:
         """Fallback method: reprocess from existing posts.json for older threads.
 
         Args:
@@ -311,11 +321,15 @@ class ThreadProcessor:
 
             # Step 1: Generate fresh embeddings
             logger.info(f"Regenerating embeddings for {len(posts)} posts")
-            embeddings = self._generate_embeddings(posts)
+            if progress_callback:
+                progress_callback(f"Regenerating embeddings for {len(posts)} posts...")
+            embeddings = self._generate_embeddings(posts, progress_callback)
 
             # Step 2: Rebuild search index
             logger.info("Rebuilding search index")
-            search_index = self._build_search_index(thread_dir, posts, embeddings)
+            if progress_callback:
+                progress_callback("Rebuilding search index...")
+            search_index = self._build_search_index(thread_dir, posts, embeddings, progress_callback)
 
             # Step 3: Regenerate analytics
             logger.info("Regenerating thread analytics")
@@ -427,16 +441,16 @@ class ThreadProcessor:
             logger.error(f"Error loading existing results: {e}")
             return {}
 
-    def _generate_embeddings(self, posts: List[Dict]) -> List:
+    def _generate_embeddings(self, posts: List[Dict], progress_callback=None) -> List:
         """Generate embeddings for all posts."""
         texts = [post["content"] for post in posts]
-        embeddings = self.embedding_manager.get_embeddings(texts)
+        embeddings = self.embedding_manager.get_embeddings(texts, progress_callback=progress_callback)
 
         logger.info(f"Generated {len(embeddings)} embeddings")
         return embeddings
 
     def _build_search_index(
-        self, thread_dir: str, posts: List[Dict], embeddings: List
+        self, thread_dir: str, posts: List[Dict], embeddings: List, progress_callback=None
     ) -> HNSWIndex:
         """Build or update the search index."""
         # Get embedding dimension
@@ -447,7 +461,7 @@ class ThreadProcessor:
 
         # Clear and rebuild
         post_hashes = [post["hash"] for post in posts]
-        index.rebuild_index(embeddings, post_hashes)
+        index.rebuild_index(embeddings, post_hashes, progress_callback=progress_callback)
 
         # Save index
         index.save()
