@@ -48,13 +48,14 @@ class ConversationalQueryProcessor:
             'good': 'good post well received highly rated popular community favorite',
             'post': 'specific post content author engagement rating community response',
             
-            # Product recommendation expansions
+            # Product recommendation expansions (generic for any product type)
             'recommend': 'recommend suggest advice best choice favorite buy purchase love prefer',
-            'glass': 'glass piece j-hook j hook TAG GVB good vibes boro oregon glass chameleon glass thick ass glass hydro hook',
-            'piece': 'glass piece j-hook j hook hooker vapor piece water piece cooling piece TAG GVB',
-            'hook': 'j-hook j hook hooker vapor hook water hook cooling hook TAG GVB good vibes boro hydro hook',
+            'best': 'best recommended top choice favorite popular most used highly rated',
+            'which': 'which what recommend suggest best choice favorite popular commonly used most often',
             'buy': 'buy purchase recommend suggest best choice favorite where to buy link store',
-            'which': 'which what recommend suggest best choice favorite popular commonly used most often'
+            'popular': 'popular recommend best choice favorite commonly used most often highly rated',
+            'favorite': 'favorite recommend best choice popular love prefer top choice',
+            'often': 'often recommend commonly used popular frequently mentioned best choice'
         }
         
         # Vague query indicators
@@ -237,10 +238,11 @@ class ConversationalQueryProcessor:
         for key, expansion in self.expansion_patterns.items():
             if key in query_lower:
                 logger.info(f"Auto-expanding query '{original_query}' with '{key}' terms")
+                # Use the expansion as-is (no special cases for specific products)
                 expanded_parts.append(expansion)
                 expansion_applied.append(key)
-                # Allow multiple expansions for better coverage
-                if len(expansion_applied) >= 3:  # Limit to avoid over-expansion
+                # Limit to 2 expansions to avoid over-specificity
+                if len(expansion_applied) >= 2:
                     break
         
         # Detect and enhance vague queries automatically

@@ -108,7 +108,7 @@ class SemanticSearchEngine:
                 reranked_results = raw_results
             
             # Step 7: Limit to requested number
-            final_results = reranked_results[:top_k]
+            final_results = reranked_results[:effective_top_k]
             
             # Step 8: Add search metadata
             search_time = time.time() - start_time
