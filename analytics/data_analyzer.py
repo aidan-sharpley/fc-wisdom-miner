@@ -500,6 +500,16 @@ class ForumDataAnalyzer:
             'upvoted', 'reactions', 'engagement', 'votes', 'voting'
         ]
         
+        # Technical specification/settings queries (should find actual user data)
+        technical_spec_indicators = [
+            'what wattage', 'wattage setting', 'wattage do', 'power setting', 'watts',
+            'what temperature', 'temp setting', 'temperature do', 'degrees', 'celsius', 'fahrenheit',
+            'what voltage', 'voltage setting', 'volts', 'what resistance', 'ohms', 'resistance',
+            'what settings', 'settings do', 'configuration', 'setup', 'how do people set',
+            'what do people use', 'what do users set', 'community settings', 'recommended settings',
+            'typical settings', 'common settings', 'standard settings', 'preferred settings'
+        ]
+        
         # Check if we can handle this query
         if any(indicator in query_lower for indicator in participant_indicators):
             return True
@@ -514,6 +524,9 @@ class ForumDataAnalyzer:
             return True
             
         if any(indicator in query_lower for indicator in engagement_indicators):
+            return True
+            
+        if any(indicator in query_lower for indicator in technical_spec_indicators):
             return True
         
         # Check analytical intents
@@ -596,10 +609,159 @@ class ForumDataAnalyzer:
             'when', 'timeline', 'over time', 'chronology'
         ]) or 'timeline' in analytical_intent:
             return self.analyze_temporal_patterns(query)
+            
+        elif any(indicator in query_lower for indicator in [
+            'what wattage', 'wattage setting', 'wattage do', 'power setting', 'watts',
+            'what temperature', 'temp setting', 'temperature do', 'degrees', 'celsius', 'fahrenheit',
+            'what voltage', 'voltage setting', 'volts', 'what resistance', 'ohms', 'resistance',
+            'what settings', 'settings do', 'configuration', 'setup', 'how do people set',
+            'what do people use', 'what do users set', 'community settings', 'recommended settings',
+            'typical settings', 'common settings', 'standard settings', 'preferred settings'
+        ]):
+            return self.analyze_technical_specifications(query)
         
         else:
             # Fallback to participant analysis for other participant queries
             return self.analyze_participant_activity(query)
+    
+    def analyze_technical_specifications(self, query: str) -> Dict[str, Any]:
+        """Analyze technical specification queries by finding actual user settings.
+        
+        Args:
+            query: The original query about technical settings
+            
+        Returns:
+            Analysis results with actual user data
+        """
+        posts = self._load_posts()
+        if not posts:
+            return {
+                'error': 'No posts available for analysis',
+                'total_posts_analyzed': 0,
+                'type': 'technical_specifications'
+            }
+        
+        query_lower = query.lower()
+        
+        # Extract what technical aspect they're asking about
+        if any(term in query_lower for term in ['wattage', 'watts', 'power']):
+            spec_type = 'wattage'
+            search_patterns = ['watt', 'w ', ' w)', 'power', 'voltage']
+        elif any(term in query_lower for term in ['temperature', 'temp', 'celsius', 'fahrenheit', 'degrees']):
+            spec_type = 'temperature'
+            search_patterns = ['°', 'degree', 'celsius', 'fahrenheit', 'temp', 'heat']
+        elif any(term in query_lower for term in ['voltage', 'volts', 'volt']):
+            spec_type = 'voltage'
+            search_patterns = ['volt', 'v ', ' v)', 'voltage']
+        elif any(term in query_lower for term in ['resistance', 'ohm']):
+            spec_type = 'resistance'
+            search_patterns = ['ohm', 'ω', 'resistance']
+        else:
+            spec_type = 'settings'
+            search_patterns = ['setting', 'config', 'setup', 'adjust', 'set to', 'use']
+        
+        # Find posts mentioning technical specifications
+        relevant_posts = []
+        settings_mentioned = []
+        
+        import re
+        
+        for post in posts:
+            content = post.get('content', '').lower()
+            
+            # Look for numerical values with units
+            if spec_type == 'wattage':
+                # Look for wattage patterns like "20W", "20 watts", "20 watt"
+                watt_matches = re.findall(r'(\d+(?:\.\d+)?)\s*(?:w\b|watts?\b|wattage)', content, re.IGNORECASE)
+                if watt_matches:
+                    for match in watt_matches:
+                        settings_mentioned.append(f"{match}W")
+                    relevant_posts.append({
+                        **post,
+                        'spec_values': [f"{match}W" for match in watt_matches],
+                        'relevance_reason': f'Mentions {len(watt_matches)} wattage setting(s)'
+                    })
+            
+            elif spec_type == 'temperature':
+                # Look for temperature patterns
+                temp_matches = re.findall(r'(\d+(?:\.\d+)?)\s*(?:°?[cf]\b|celsius|fahrenheit|degrees?)', content, re.IGNORECASE)
+                if temp_matches:
+                    for match in temp_matches:
+                        settings_mentioned.append(f"{match}°")
+                    relevant_posts.append({
+                        **post,
+                        'spec_values': [f"{match}°" for match in temp_matches],
+                        'relevance_reason': f'Mentions {len(temp_matches)} temperature setting(s)'
+                    })
+            
+            elif any(pattern in content for pattern in search_patterns):
+                # General settings/configuration posts
+                relevant_posts.append({
+                    **post,
+                    'relevance_reason': f'Discusses {spec_type} settings'
+                })
+        
+        if not relevant_posts:
+            return {
+                'error': f'No posts found discussing {spec_type} settings',
+                'spec_type': spec_type,
+                'total_posts_analyzed': len(posts),
+                'type': 'technical_specifications'
+            }
+        
+        # Analyze the findings
+        analysis = {
+            'type': 'technical_specifications',
+            'spec_type': spec_type,
+            'query': query,
+            'total_posts_analyzed': len(posts),
+            'relevant_posts_count': len(relevant_posts),
+            'settings_found': len(set(settings_mentioned)) if settings_mentioned else 0,
+            'common_settings': [],
+            'top_posts': []
+        }
+        
+        # Count frequency of specific settings
+        if settings_mentioned:
+            from collections import Counter
+            setting_counts = Counter(settings_mentioned)
+            analysis['common_settings'] = [
+                {'setting': setting, 'mentions': count} 
+                for setting, count in setting_counts.most_common(10)
+            ]
+        
+        # Get top 5 most relevant posts
+        # Sort by upvotes/engagement if available, otherwise by content length
+        sorted_posts = sorted(relevant_posts, key=lambda p: (
+            p.get('upvotes', 0) + p.get('likes', 0) + p.get('reactions', 0),
+            len(p.get('content', ''))
+        ), reverse=True)
+        
+        analysis['top_posts'] = []
+        for post in sorted_posts[:5]:
+            post_summary = {
+                'author': post.get('author', 'Unknown'),
+                'date': post.get('date', 'Unknown'),
+                'page': post.get('page', 1),
+                'relevance_reason': post.get('relevance_reason', ''),
+                'engagement': post.get('upvotes', 0) + post.get('likes', 0) + post.get('reactions', 0),
+                'content_preview': post.get('content', '')[:200] + '...' if len(post.get('content', '')) > 200 else post.get('content', '')
+            }
+            
+            # Add spec values if found
+            if 'spec_values' in post:
+                post_summary['spec_values'] = post['spec_values']
+            
+            # Add post link if available
+            if post.get('post_url'):
+                post_summary['post_url'] = post['post_url']
+            elif post.get('post_id'):
+                post_summary['post_id'] = post['post_id']
+            
+            analysis['top_posts'].append(post_summary)
+        
+        logger.info(f"Found {len(relevant_posts)} posts discussing {spec_type} settings")
+        return analysis
 
 
 __all__ = ['ForumDataAnalyzer']

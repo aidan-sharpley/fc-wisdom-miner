@@ -13,6 +13,7 @@ import requests
 
 from analytics.data_analyzer import ForumDataAnalyzer
 from analytics.query_analytics import ConversationalQueryProcessor
+from analytics.llm_query_router import LLMQueryRouter
 from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
 from search.response_refiner import ResponseRefiner
@@ -35,6 +36,7 @@ class QueryProcessor:
         self.query_analyzer = ConversationalQueryProcessor()
         self.data_analyzer = ForumDataAnalyzer(thread_dir)
         self.response_refiner = ResponseRefiner()
+        self.llm_router = LLMQueryRouter()
         
         # Initialize keyword search with posts from semantic search engine
         self.keyword_search = KeywordSearchEngine(self.search_engine.posts)
@@ -67,18 +69,27 @@ class QueryProcessor:
         logger.info(f"Processing query: '{query[:50]}...'")
         
         try:
-            # Step 1: Analyze the query with smart enhancement
-            query_analysis = self.query_analyzer.analyze_conversational_query(query)
-            analytical_intent = query_analysis.get('analytical_intent', [])
+            # Step 1: Use LLM to intelligently route the query
+            thread_metadata = self._get_thread_metadata()
+            routing_decision = self.llm_router.route_query(query, thread_metadata)
             
-            # Check if query was auto-expanded and log it
-            expanded_query = query_analysis.get('expanded_query', query)
-            if expanded_query != query:
-                logger.info(f"Query auto-enhanced from '{query}' to '{expanded_query}' for better results")
+            logger.info(f"LLM routing decision: {routing_decision.get('method')} - {routing_decision.get('reasoning')}")
             
-            # Step 2: Check if this can be handled with direct data analysis
-            if self.data_analyzer.can_handle_query(query, analytical_intent):
+            # Step 2: Apply query enhancement for semantic queries
+            if routing_decision.get('method') == 'semantic':
+                query_analysis = self.query_analyzer.analyze_conversational_query(query)
+                expanded_query = query_analysis.get('expanded_query', query)
+                if expanded_query != query:
+                    logger.info(f"Query auto-enhanced from '{query}' to '{expanded_query}' for better results")
+            else:
+                query_analysis = {'expanded_query': query}
+                expanded_query = query
+            
+            # Step 3: Route to appropriate processor
+            if routing_decision.get('method') == 'analytical':
                 logger.info("Routing query to analytical data processor")
+                # Map the LLM's query_type to our analytical capabilities
+                analytical_intent = [routing_decision.get('query_type', 'general')]
                 analytical_result = self.data_analyzer.analyze_query(query, analytical_intent)
                 
                 if 'error' not in analytical_result:
@@ -114,82 +125,77 @@ class QueryProcessor:
                             'query_type': 'analytical'
                         }
             
-            # Step 3: Fallback to semantic search for non-analytical queries
-            logger.info("Routing query to semantic search engine")
-            
-            # Determine search depth based on query type
-            search_depth = 10  # Default
-            if query_analysis.get('suggested_approach') == 'comprehensive':
-                search_depth = 15
-            elif self._is_product_recommendation_query(query, query_analysis):
-                search_depth = 25  # Cast wider net for product recommendations
-                logger.info("Product recommendation detected - using expanded search")
-            elif self._query_contains_superlatives(query):
-                # For "most/best/top" queries, search deeper into thread
-                search_depth = min(100, len(self.search_engine.posts) // 10)  # 10% of thread
-                logger.info(f"Superlative query detected - using deep search ({search_depth} results)")
-            elif self._is_instructional_query(query):
-                # For instruction/how-to queries, search more broadly
-                search_depth = 30  # Instructions often scattered across posts
-                logger.info(f"Instructional query detected - using expanded search ({search_depth} results)")
-            
-            # Multi-stage search pipeline: keyword + semantic
-            search_query = query_analysis.get('expanded_query', query)
-            
-            # Stage 1: Keyword search for exact matches
-            keyword_results = self.keyword_search.search(query, top_k=max(25, search_depth // 2))
-            
-            # Stage 2: Semantic search
-            semantic_results, search_metadata = self.search_engine.search(search_query, top_k=search_depth)
-            
-            # Stage 3: Merge and deduplicate results
-            search_results = merge_search_results(semantic_results, keyword_results, max_results=min(search_depth + 15, 50))
-            
-            logger.info(f"Multi-stage search: {len(keyword_results)} keyword + {len(semantic_results)} semantic → {len(search_results)} merged results")
-            
-            # Step 4: Build context
-            context = self._build_context(search_results, query_analysis)
-            
-            # Step 5: Generate enhanced prompt
-            enhanced_prompt = self.query_analyzer.generate_analytical_prompt(
-                query, query_analysis, context
-            )
-            
-            # Step 6: Get LLM response
-            if stream:
-                raw_response_generator = self._get_streaming_response(enhanced_prompt)
-                refined_response_generator = self.response_refiner.refine_response_stream(
-                    raw_response_generator, query, 'semantic'
-                )
-                return {
-                    'query': query,
-                    'analysis': query_analysis,
-                    'search_metadata': search_metadata,
-                    'context_posts': len(search_results),
-                    'response_stream': refined_response_generator,
-                    'processing_time': time.time() - start_time,
-                    'query_type': 'semantic'
-                }
             else:
-                raw_response_text = self._get_complete_response(enhanced_prompt)
-                response_text = self.response_refiner.refine_response(raw_response_text, query, 'semantic')
-                processing_time = time.time() - start_time
+                # Step 4: Semantic search processing
+                logger.info("Routing query to semantic search engine")
                 
-                # Update statistics
-                self.stats['total_queries'] += 1
-                self.stats['total_response_time'] += processing_time
-                self.stats['average_response_time'] = (
-                    self.stats['total_response_time'] / self.stats['total_queries']
+                # Use LLM-recommended search depth
+                search_depth = routing_decision.get('search_depth', 10)
+                logger.info(f"Using LLM-recommended search depth: {search_depth}")
+                
+                # Additional depth adjustments based on query analysis
+                if query_analysis.get('suggested_approach') == 'comprehensive':
+                    search_depth = max(search_depth, 15)
+                
+                # Multi-stage search pipeline: keyword + semantic
+                search_query = expanded_query
+                
+                # Stage 1: Keyword search for exact matches
+                keyword_results = self.keyword_search.search(query, top_k=max(25, search_depth // 2))
+                
+                # Stage 2: Semantic search
+                semantic_results, search_metadata = self.search_engine.search(search_query, top_k=search_depth)
+                
+                # Stage 3: Merge and deduplicate results
+                search_results = merge_search_results(semantic_results, keyword_results, max_results=min(search_depth + 15, 50))
+                
+                logger.info(f"Multi-stage search: {len(keyword_results)} keyword + {len(semantic_results)} semantic → {len(search_results)} merged results")
+                
+                # Step 5: Build context
+                context = self._build_context(search_results, query_analysis)
+                
+                # Step 6: Generate enhanced prompt
+                enhanced_prompt = self.query_analyzer.generate_analytical_prompt(
+                    query, query_analysis, context
                 )
                 
-                return {
-                    'query': query,
-                    'response': response_text,
-                    'analysis': query_analysis,
-                    'search_metadata': search_metadata,
-                    'context_posts': len(search_results),
-                    'processing_time': processing_time
-                }
+                # Step 7: Get LLM response
+                if stream:
+                    raw_response_generator = self._get_streaming_response(enhanced_prompt)
+                    refined_response_generator = self.response_refiner.refine_response_stream(
+                        raw_response_generator, query, 'semantic'
+                    )
+                    return {
+                        'query': query,
+                        'analysis': query_analysis,
+                        'search_metadata': search_metadata,
+                        'context_posts': len(search_results),
+                        'response_stream': refined_response_generator,
+                        'processing_time': time.time() - start_time,
+                        'query_type': 'semantic',
+                        'routing_decision': routing_decision
+                    }
+                else:
+                    raw_response_text = self._get_complete_response(enhanced_prompt)
+                    response_text = self.response_refiner.refine_response(raw_response_text, query, 'semantic')
+                    processing_time = time.time() - start_time
+                    
+                    # Update statistics
+                    self.stats['total_queries'] += 1
+                    self.stats['total_response_time'] += processing_time
+                    self.stats['average_response_time'] = (
+                        self.stats['total_response_time'] / self.stats['total_queries']
+                    )
+                    
+                    return {
+                        'query': query,
+                        'response': response_text,
+                        'analysis': query_analysis,
+                        'search_metadata': search_metadata,
+                        'context_posts': len(search_results),
+                        'processing_time': processing_time,
+                        'routing_decision': routing_decision
+                    }
                 
         except Exception as e:
             logger.error(f"Error processing query: {e}")
@@ -433,8 +439,41 @@ class QueryProcessor:
             ),
             'search_engine_stats': self.search_engine.get_stats(),
             'keyword_search_stats': self.keyword_search.get_stats(),
-            'response_refiner_stats': self.response_refiner.get_stats()
+            'response_refiner_stats': self.response_refiner.get_stats(),
+            'llm_router_stats': self.llm_router.get_stats()
         }
+    
+    def _get_thread_metadata(self) -> Dict:
+        """Get thread metadata for LLM routing context."""
+        try:
+            # Get basic thread stats
+            posts_count = len(self.search_engine.posts) if hasattr(self.search_engine, 'posts') else 0
+            
+            # Try to get analytics data if available
+            analytics_file = f"{self.thread_dir}/thread_analytics.json"
+            from utils.file_utils import safe_read_json
+            analytics = safe_read_json(analytics_file)
+            
+            if analytics and 'summary' in analytics:
+                overview = analytics['summary'].get('overview', {})
+                return {
+                    'total_posts': overview.get('total_posts', posts_count),
+                    'participants': overview.get('participants', 'unknown'),
+                    'pages': overview.get('pages', 'unknown')
+                }
+            else:
+                return {
+                    'total_posts': posts_count,
+                    'participants': 'unknown',
+                    'pages': 'unknown'
+                }
+        except Exception as e:
+            logger.warning(f"Could not load thread metadata: {e}")
+            return {
+                'total_posts': 'unknown',
+                'participants': 'unknown', 
+                'pages': 'unknown'
+            }
     
     def _generate_analytical_response_stream(self, analytical_result: Dict):
         """Generate streaming response from analytical results.
@@ -479,6 +518,8 @@ class QueryProcessor:
             return self._format_positional_analysis(analytical_result)
         elif result_type == 'engagement_analysis':
             return self._format_engagement_analysis(analytical_result)
+        elif result_type == 'technical_specifications':
+            return self._format_technical_specifications(analytical_result)
         else:
             return f"Analysis complete. Result type: {result_type}"
     
@@ -709,72 +750,68 @@ class QueryProcessor:
         
         return ''.join(response_parts)
     
-    def _is_product_recommendation_query(self, query: str, query_analysis: Dict) -> bool:
-        """Check if this is a product recommendation query that needs expanded search.
+    def _format_technical_specifications(self, result: Dict) -> str:
+        """Format technical specifications analysis results."""
+        if 'error' in result:
+            return f"**Analysis Error:**\n\n{result['error']}\n\nTotal posts analyzed: {result.get('total_posts_analyzed', 0)}"
         
-        Args:
-            query: Original query string
-            query_analysis: Query analysis results
-            
-        Returns:
-            True if this is a product recommendation query
-        """
-        query_lower = query.lower()
+        spec_type = result.get('spec_type', 'settings')
+        query = result.get('query', '')
+        common_settings = result.get('common_settings', [])
+        top_posts = result.get('top_posts', [])
         
-        # Product recommendation indicators
-        product_indicators = [
-            'recommend', 'suggest', 'best', 'good', 'which', 'what',
-            'most often', 'most popular', 'commonly used', 'favorite'
-        ]
+        response_parts = []
         
-        # Product types (generic indicators, not specific to any domain)
-        product_types = [
-            'piece', 'device', 'equipment', 'tool', 'product', 'item', 'gear',
-            'model', 'brand', 'type', 'version', 'unit', 'system'
-        ]
+        response_parts.append(f"**{spec_type.title()} Settings Analysis:**\n\n")
         
-        # Check if query contains both recommendation language and product types
-        has_recommendation = any(indicator in query_lower for indicator in product_indicators)
-        has_product = any(product_type in query_lower for product_type in product_types)
+        # Show most common settings if found
+        if common_settings:
+            response_parts.append(f"🔧 **Most Common {spec_type.title()} Settings:**\n")
+            for i, setting_data in enumerate(common_settings[:5], 1):
+                setting = setting_data['setting']
+                mentions = setting_data['mentions']
+                response_parts.append(f"{i}. **{setting}** - mentioned {mentions} time(s)\n")
+            response_parts.append("\n")
         
-        return has_recommendation and has_product
+        # Show top relevant posts
+        if top_posts:
+            response_parts.append(f"📋 **Top Community Posts About {spec_type.title()}:**\n\n")
+            for i, post in enumerate(top_posts[:3], 1):
+                response_parts.append(f"**{i}. {post.get('author', 'Unknown')}** ")
+                if post.get('engagement', 0) > 0:
+                    response_parts.append(f"(⬆️ {post['engagement']} engagement) ")
+                response_parts.append(f"- Page {post.get('page', 1)}\n")
+                
+                # Show specific values found
+                if 'spec_values' in post:
+                    response_parts.append(f"   • **Settings mentioned**: {', '.join(post['spec_values'])}\n")
+                
+                # Show relevance reason
+                if post.get('relevance_reason'):
+                    response_parts.append(f"   • **Why relevant**: {post['relevance_reason']}\n")
+                
+                # Show content preview
+                preview = post.get('content_preview', '')
+                if preview:
+                    response_parts.append(f"   • **Content**: \"{preview}\"\n")
+                
+                # Add post link if available
+                if post.get('post_url'):
+                    response_parts.append(f"   • **Direct link**: {post['post_url']}\n")
+                elif post.get('post_id'):
+                    response_parts.append(f"   • **Post ID**: {post['post_id']}\n")
+                
+                response_parts.append("\n")
+        
+        # Summary stats
+        response_parts.append(f"📊 **Analysis Summary:**\n")
+        response_parts.append(f"• **Relevant posts found**: {result.get('relevant_posts_count', 0)}\n")
+        response_parts.append(f"• **Different {spec_type} values**: {result.get('settings_found', 0)}\n")
+        response_parts.append(f"• **Total posts analyzed**: {result.get('total_posts_analyzed', 0)}\n")
+        
+        return ''.join(response_parts)
     
-    def _query_contains_superlatives(self, query: str) -> bool:
-        """Check if query contains superlative terms requiring deep search.
-        
-        Args:
-            query: Query string to check
-            
-        Returns:
-            True if query contains superlative terms
-        """
-        superlatives = [
-            'most', 'best', 'top', 'highest', 'lowest', 'biggest', 'smallest',
-            'first', 'last', 'worst', 'least', 'favorite', 'preferred',
-            'ultimate', 'optimal', 'ideal', 'perfect', 'maximum', 'minimum'
-        ]
-        
-        query_lower = query.lower()
-        return any(sup in query_lower for sup in superlatives)
-    
-    def _is_instructional_query(self, query: str) -> bool:
-        """Check if query is asking for instructions or how-to information.
-        
-        Args:
-            query: Query string to check
-            
-        Returns:
-            True if query is asking for instructions
-        """
-        instructional_terms = [
-            'instructions', 'instruction', 'how to', 'how do', 'steps',
-            'guide', 'tutorial', 'method', 'technique', 'process',
-            'procedure', 'setup', 'configure', 'install', 'use',
-            'operate', 'work with', 'handle', 'manage'
-        ]
-        
-        query_lower = query.lower()
-        return any(term in query_lower for term in instructional_terms)
+# Old query detection methods removed - now using LLM-based routing
 
 
 __all__ = ['QueryProcessor']
