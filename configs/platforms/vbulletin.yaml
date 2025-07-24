@@ -1,0 +1,129 @@
+# vBulletin Forum Platform Configuration  
+# This configuration is optimized for vBulletin-based forums
+
+platform:
+  name: "vBulletin"
+  version: "5.x"
+  description: "Configuration for vBulletin forum platform"
+  domains:
+    - "vbulletin.com"
+    - "vbulletin.org"
+  
+# CSS Selectors for extracting forum content
+selectors:
+  # Post container selectors (in priority order)
+  posts:
+    - ".postbit_legacy"
+    - ".postbit"
+    - ".post"
+    - "[id^='post_']"
+    - ".messageContent"
+
+  # Post content selectors  
+  content:
+    - ".post_message"
+    - ".postbody .content"
+    - ".messageContent .userText"
+    - ".postcontent"
+    - ".message-content"
+
+  # Author/username selectors
+  author:
+    - ".postbit_legacy .bigusername"
+    - ".username_container .username"
+    - ".author .username"
+    - ".postbit .username"
+    - ".memberName"
+
+  # Date/timestamp selectors
+  date:
+    - ".postDate .date"
+    - ".post-date"
+    - ".datetime"
+    - "[data-time]"
+    - ".time"
+
+  # Vote and reaction selectors
+  votes:
+    upvotes:
+      - ".like-count"
+      - ".upvote-count" 
+      - ".positive-count"
+      - ".thumbs-up .count"
+      - ".vote-up"
+    
+    downvotes:
+      - ".dislike-count"
+      - ".downvote-count"
+      - ".negative-count"
+      - ".thumbs-down .count"
+      - ".vote-down"
+    
+    likes:
+      - ".like-button .count"
+      - ".likes .count"
+      - "[data-likes]"
+      - ".reputation-positive"
+    
+    reactions:
+      - ".reaction-count"
+      - ".total-reactions"
+      - ".reaction-bar .count"
+
+  # Navigation and pagination
+  pagination:
+    - ".pagination a"
+    - ".pagenav a"
+    - ".pagelinks a"
+    - "[rel='next']"
+
+  # Thread/topic information  
+  thread_info:
+    title: ".threadtitle"
+    author: ".threadauthor .username"
+    post_count: ".threadstats"
+
+# Scraping behavior settings
+scraping:
+  # Request delays (seconds)
+  delay_between_requests: 0.5
+  delay_between_pages: 0.7
+  
+  # Retry configuration
+  max_retries: 3
+  retry_backoff: 2.0
+  
+  # Request headers
+  headers:
+    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    Accept-Language: "en-US,en;q=0.9"
+    
+# Text processing configuration
+processing:
+  # Content cleaning rules
+  remove_elements:
+    - ".signature"
+    - ".post-signature"
+    - ".editedby"
+    - ".quotetitle"
+    - ".bbcode_container .bbcode_quote_container"
+    
+  # Minimum post requirements
+  min_post_length: 15
+  min_content_ratio: 0.35  # 35% actual text vs markup
+  
+  # Date parsing patterns
+  date_patterns:
+    - "%m-%d-%Y, %I:%M %p"     # "01-15-2024, 3:45 PM"
+    - "%d-%m-%Y %H:%M"         # "15-01-2024 15:45"
+    - "%Y-%m-%d %H:%M:%S"      # "2024-01-15 15:45:30"
+
+# Platform-specific features
+features:
+  supports_reactions: false
+  supports_voting: true
+  supports_threading: true
+  supports_quoting: true
+  supports_attachments: true
+  ajax_pagination: false

@@ -1,0 +1,116 @@
+# phpBB Forum Platform Configuration
+# This configuration is optimized for phpBB-based forums
+
+platform:
+  name: "phpBB"
+  version: "3.x"
+  description: "Configuration for phpBB forum platform"
+  domains:
+    - "phpbb.com"
+    - "area51.phpbb.com"
+  
+# CSS Selectors for extracting forum content
+selectors:
+  # Post container selectors (in priority order)
+  posts:
+    - ".postbody"
+    - ".post"
+    - "[id^='p']"
+    - ".forum-post"
+
+  # Post content selectors
+  content:
+    - ".postbody .content"
+    - ".post-content"
+    - ".message"
+    - ".text"
+
+  # Author/username selectors
+  author:
+    - ".postauthor .username"
+    - ".author .username"
+    - ".username-coloured"
+    - ".postprofile .username"
+
+  # Date/timestamp selectors
+  date:
+    - ".postbody .author strong"
+    - ".post-header .responsive-hide"
+    - ".postdate"
+    - "[title*='Posted']"
+
+  # Vote and reaction selectors (phpBB has limited built-in voting)
+  votes:
+    upvotes:
+      - ".like-count"
+      - ".thumbs-up"
+      - ".positive-rating"
+    
+    downvotes:
+      - ".dislike-count"
+      - ".thumbs-down"
+      - ".negative-rating"
+    
+    likes:
+      - ".post-like"
+      - ".likes-count"
+    
+    reactions:
+      - ".reaction-count"
+
+  # Navigation and pagination
+  pagination:
+    - ".pagination a"
+    - ".gen a"
+    - "[rel='next']"
+
+  # Thread/topic information
+  thread_info:
+    title: ".topic-title"
+    author: ".topic-poster"
+    post_count: ".posts"
+
+# Scraping behavior settings
+scraping:
+  # Request delays (seconds)
+  delay_between_requests: 0.4
+  delay_between_pages: 0.6
+  
+  # Retry configuration
+  max_retries: 3
+  retry_backoff: 1.5
+  
+  # Request headers
+  headers:
+    User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    Accept-Language: "en-US,en;q=0.5"
+    
+# Text processing configuration
+processing:
+  # Content cleaning rules
+  remove_elements:
+    - ".sig"
+    - ".signature"
+    - ".notice"
+    - ".codebox"
+    - ".quotetitle"
+    
+  # Minimum post requirements
+  min_post_length: 8
+  min_content_ratio: 0.25  # 25% actual text vs markup
+  
+  # Date parsing patterns
+  date_patterns:
+    - "%a %b %d, %Y %I:%M %p"  # "Mon Jan 15, 2024 3:45 PM"
+    - "%d %b %Y, %H:%M"        # "15 Jan 2024, 15:45"
+    - "%Y-%m-%d %H:%M"         # "2024-01-15 15:45"
+
+# Platform-specific features
+features:
+  supports_reactions: false
+  supports_voting: false
+  supports_threading: false
+  supports_quoting: true
+  supports_attachments: true
+  ajax_pagination: false

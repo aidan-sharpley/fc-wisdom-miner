@@ -13,10 +13,8 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from config.settings import (
-    DELAY_BETWEEN_REQUESTS, POST_SELECTORS, 
-    AUTHOR_SELECTORS, DATE_SELECTORS, VOTE_SELECTORS
-)
+from config.settings import DELAY_BETWEEN_REQUESTS
+from config.platform_config import get_platform_config, detect_forum_platform
 from utils.helpers import normalize_url, post_hash
 from utils.text_utils import clean_post_content
 from utils.date_parser import parse_forum_date
@@ -26,19 +24,25 @@ logger = logging.getLogger(__name__)
 
 
 class ForumScraper:
-    """Enhanced forum scraper with robust error handling and retry logic."""
+    """Enhanced forum scraper with dynamic platform configuration support."""
     
-    def __init__(self, delay: float = None):
+    def __init__(self, delay: float = None, platform_config: Dict = None):
         """Initialize the forum scraper.
         
         Args:
-            delay: Delay between requests in seconds
+            delay: Delay between requests in seconds (overrides platform config)
+            platform_config: Platform-specific configuration dict
         """
-        self.delay = delay or DELAY_BETWEEN_REQUESTS
+        self.platform_config = platform_config or {}
+        self.delay = delay or self.platform_config.get('scraping', {}).get('delay_between_requests', DELAY_BETWEEN_REQUESTS)
+        
+        # Initialize session with platform-specific headers
         self.session = requests.Session()
-        self.session.headers.update({
+        default_headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        })
+        }
+        platform_headers = self.platform_config.get('scraping', {}).get('headers', {})
+        self.session.headers.update({**default_headers, **platform_headers})
         
         # Statistics
         self.stats = {
@@ -46,7 +50,8 @@ class ForumScraper:
             'successful_requests': 0,
             'failed_requests': 0,
             'total_posts_scraped': 0,
-            'start_time': time.time()
+            'start_time': time.time(),
+            'platform_detected': self.platform_config.get('platform', {}).get('name', 'Unknown')
         }
     
     @monitor_scraping_operation
@@ -213,9 +218,11 @@ class ForumScraper:
         """
         posts = []
         
-        # Try different post selectors
+        # Try different post selectors from platform configuration
         post_elements = None
-        for selector in POST_SELECTORS:
+        post_selectors = self.platform_config.get('selectors', {}).get('posts', ['.post', '.message'])
+        
+        for selector in post_selectors:
             post_elements = soup.select(selector)
             if post_elements:
                 logger.debug(f"Found {len(post_elements)} posts using selector: {selector}")
@@ -294,8 +301,10 @@ class ForumScraper:
             return None
     
     def _extract_author(self, post_elem) -> str:
-        """Extract author from post element."""
-        for selector in AUTHOR_SELECTORS:
+        """Extract author from post element using platform-specific selectors."""
+        author_selectors = self.platform_config.get('selectors', {}).get('author', ['.author', '.username'])
+        
+        for selector in author_selectors:
             author_elem = post_elem.select_one(selector)
             if author_elem:
                 author = author_elem.get_text(strip=True)
@@ -305,8 +314,10 @@ class ForumScraper:
         return 'unknown-author'
     
     def _extract_date(self, post_elem) -> str:
-        """Extract date from post element."""
-        for selector in DATE_SELECTORS:
+        """Extract date from post element using platform-specific selectors."""
+        date_selectors = self.platform_config.get('selectors', {}).get('date', ['time', '.date', '.timestamp'])
+        
+        for selector in date_selectors:
             date_elem = post_elem.select_one(selector)
             if date_elem:
                 # Try text content first
@@ -416,8 +427,9 @@ class ForumScraper:
         }
         
         try:
-            # Try various vote selectors for different forum platforms
-            for vote_type, selectors in VOTE_SELECTORS.items():
+            # Try various vote selectors from platform configuration
+            vote_selectors = self.platform_config.get('selectors', {}).get('votes', {})
+            for vote_type, selectors in vote_selectors.items():
                 for selector in selectors:
                     vote_elem = post_elem.select_one(selector)
                     if vote_elem:

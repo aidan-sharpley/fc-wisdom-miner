@@ -16,6 +16,7 @@ from embedding.embedding_manager import EmbeddingManager
 from embedding.hnsw_index import HNSWIndex
 from processing.post_processor import PostProcessor
 from scraping.forum_scraper import ForumScraper
+from config.platform_config import get_platform_config, detect_forum_platform
 from utils.file_utils import atomic_write_json, get_thread_dir, safe_read_json
 from utils.helpers import normalize_url
 
@@ -27,7 +28,8 @@ class ThreadProcessor:
 
     def __init__(self):
         """Initialize the thread processor."""
-        self.scraper = ForumScraper()
+        # Note: scraper will be initialized per-thread with platform config
+        self.scraper = None
         self.post_processor = PostProcessor()
         self.embedding_manager = EmbeddingManager()
 
@@ -63,7 +65,15 @@ class ThreadProcessor:
                 logger.info(f"Thread {thread_key} is current, skipping processing")
                 return thread_key, self._load_existing_results(thread_dir)
 
-            # Step 2: Scrape the thread
+            # Step 2: Initialize platform-specific scraper and scrape the thread
+            logger.info(f"Detecting platform and initializing scraper for {normalized_url}")
+            platform_config = get_platform_config(normalized_url)
+            platform_name = platform_config.get('platform', {}).get('name', 'Unknown')
+            logger.info(f"Detected platform: {platform_name}")
+            
+            # Initialize scraper with platform configuration
+            self.scraper = ForumScraper(platform_config=platform_config)
+            
             logger.info(f"Scraping thread from {normalized_url}")
             raw_posts, scrape_metadata = self.scraper.scrape_thread(
                 normalized_url, save_html=True, thread_dir=thread_dir

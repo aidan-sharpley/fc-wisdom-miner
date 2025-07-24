@@ -1,0 +1,122 @@
+# XenForo Forum Platform Configuration
+# This configuration is optimized for XenForo-based forums
+
+platform:
+  name: "XenForo"
+  version: "2.x"
+  description: "Configuration for XenForo forum platform"
+  domains:
+    - "xenforo.com"
+    - "xentr.com"
+  
+# CSS Selectors for extracting forum content
+selectors:
+  # Post container selectors (in priority order)
+  posts:
+    - "article.message"
+    - ".message--post"
+    - "[data-content='message-body']"
+    - ".message"
+
+  # Post content selectors
+  content:
+    - "div.message-userContent .bbWrapper"
+    - ".message-body .bbWrapper"
+    - ".message-userContent .bbCodeBlock"
+    - ".message-content"
+    - ".message-userContent"
+
+  # Author/username selectors
+  author:
+    - ".message-name .username"
+    - ".message-userDetails .username"
+    - ".message-name a"
+    - ".username"
+
+  # Date/timestamp selectors
+  date:
+    - "time[datetime]"
+    - ".message-date time"
+    - ".message-attribution-opposite time"
+    - "[data-time]"
+
+  # Vote and reaction selectors
+  votes:
+    upvotes:
+      - ".message-reaction-score[data-reaction='1']"
+      - ".like-count"
+      - ".positive-count"
+      - "[data-score]"
+    
+    downvotes:
+      - ".message-reaction-score[data-reaction='-1']"
+      - ".dislike-count"
+      - ".negative-count"
+    
+    likes:
+      - ".message-reaction[data-reaction='Like'] .count"
+      - ".likes-received"
+      - "[data-likes]"
+      - ".like-button .count"
+    
+    reactions:
+      - ".message-reactionSummary .count"
+      - ".reaction-count"
+      - ".total-reactions"
+
+  # Navigation and pagination
+  pagination:
+    - ".pageNav-page"
+    - ".pageNav-jump"
+    - "a[data-page]"
+    - ".pagination a"
+
+  # Thread/topic information
+  thread_info:
+    title: ".p-title-value"
+    author: ".p-description .username"
+    post_count: ".pairs--justified dd"
+
+# Scraping behavior settings
+scraping:
+  # Request delays (seconds)
+  delay_between_requests: 0.3
+  delay_between_pages: 0.5
+  
+  # Retry configuration
+  max_retries: 3
+  retry_backoff: 2.0
+  
+  # Request headers
+  headers:
+    User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    Accept-Language: "en-US,en;q=0.5"
+    
+# Text processing configuration
+processing:
+  # Content cleaning rules
+  remove_elements:
+    - ".bbCodeSpoiler-button"
+    - ".message-signature"
+    - ".message-lastEdit"
+    - ".bbCodeQuote-attribution"
+    
+  # Minimum post requirements
+  min_post_length: 10
+  min_content_ratio: 0.3  # 30% actual text vs markup
+  
+  # Date parsing patterns
+  date_patterns:
+    - "%Y-%m-%dT%H:%M:%S%z"  # ISO format
+    - "%b %d, %Y at %I:%M %p"  # "Jan 15, 2024 at 3:45 PM"
+    - "%m/%d/%Y %I:%M %p"      # "01/15/2024 3:45 PM"
+
+# Platform-specific features
+features:
+  supports_reactions: true
+  supports_voting: true
+  supports_threading: true
+  supports_quoting: true
+  supports_attachments: true
+  ajax_pagination: true

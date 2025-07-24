@@ -1,0 +1,134 @@
+# Generic Forum Platform Configuration
+# Fallback configuration for unknown or custom forum platforms
+
+platform:
+  name: "Generic"
+  version: "unknown"
+  description: "Generic configuration for unknown forum platforms"
+  domains: []
+  
+# CSS Selectors for extracting forum content (broad selectors)
+selectors:
+  # Post container selectors (in priority order)
+  posts:
+    - ".post"
+    - ".message"
+    - "[data-post-id]"
+    - "article"
+    - ".comment"
+    - "[id^='post']"
+    - "[id^='message']"
+
+  # Post content selectors
+  content:
+    - ".post-content"
+    - ".message-content"
+    - ".content"
+    - ".text"
+    - ".body"
+    - "p"
+
+  # Author/username selectors
+  author:
+    - ".author"
+    - ".username"
+    - ".user"
+    - ".poster"
+    - ".by-author"
+    - "[data-author]"
+
+  # Date/timestamp selectors
+  date:
+    - "time[datetime]"
+    - ".date"
+    - ".timestamp"
+    - ".time"
+    - "[data-time]"
+    - "[data-date]"
+
+  # Vote and reaction selectors
+  votes:
+    upvotes:
+      - ".upvote"
+      - ".like"
+      - ".positive"
+      - ".thumbs-up"
+      - "[data-vote='up']"
+    
+    downvotes:
+      - ".downvote"
+      - ".dislike"
+      - ".negative"
+      - ".thumbs-down"
+      - "[data-vote='down']"
+    
+    likes:
+      - ".likes"
+      - ".hearts"
+      - "[data-likes]"
+    
+    reactions:
+      - ".reactions"
+      - ".emoji"
+      - ".reaction-count"
+
+  # Navigation and pagination
+  pagination:
+    - ".pagination a"
+    - ".pager a"
+    - ".nav-links a"
+    - "[rel='next']"
+    - ".next"
+
+  # Thread/topic information
+  thread_info:
+    title: ".title"
+    author: ".author"
+    post_count: ".count"
+
+# Scraping behavior settings
+scraping:
+  # Request delays (seconds) - conservative for unknown platforms
+  delay_between_requests: 0.8
+  delay_between_pages: 1.0
+  
+  # Retry configuration
+  max_retries: 2
+  retry_backoff: 3.0
+  
+  # Request headers
+  headers:
+    User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    Accept-Language: "en-US,en;q=0.9"
+    
+# Text processing configuration
+processing:
+  # Content cleaning rules (minimal to avoid removing valid content)
+  remove_elements:
+    - ".signature"
+    - ".sig"
+    - ".footer"
+    - ".ad"
+    - ".advertisement"
+    
+  # Minimum post requirements (lenient for unknown formats)
+  min_post_length: 5
+  min_content_ratio: 0.2  # 20% actual text vs markup
+  
+  # Date parsing patterns (common formats)
+  date_patterns:
+    - "%Y-%m-%d %H:%M:%S"      # "2024-01-15 15:45:30"
+    - "%Y-%m-%dT%H:%M:%S%z"    # ISO format
+    - "%m/%d/%Y %I:%M %p"      # "01/15/2024 3:45 PM"
+    - "%d/%m/%Y %H:%M"         # "15/01/2024 15:45"
+    - "%b %d, %Y"              # "Jan 15, 2024"
+
+# Platform-specific features (conservative defaults)
+features:
+  supports_reactions: false
+  supports_voting: false
+  supports_threading: false
+  supports_quoting: false
+  supports_attachments: false
+  ajax_pagination: false
