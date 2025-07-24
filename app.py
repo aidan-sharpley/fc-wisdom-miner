@@ -487,9 +487,8 @@ def delete_thread():
         success = thread_processor.delete_thread(thread_key)
         
         if success:
-            # Remove from query processor cache
-            if thread_key in query_processors:
-                del query_processors[thread_key]
+            # Clear from query processor cache
+            query_processor_cache.clear()  # Clear entire cache as we don't have individual removal
             
             logger.info(f"Deleted thread: {thread_key}")
             return f"Thread '{thread_key}' deleted successfully"
@@ -687,15 +686,16 @@ def get_stats():
         # Get processing stats
         processing_stats = thread_processor.get_stats()
         
-        # Get per-thread query stats
-        query_stats = {}
-        for thread_key, processor in query_processors.items():
-            query_stats[thread_key] = processor.get_stats()
+        # Get query processor cache stats
+        query_stats = {
+            "cache_size": query_processor_cache.size(),
+            "max_cache_size": query_processor_cache._max_size
+        }
         
         return jsonify({
             "processing": processing_stats,
             "queries": query_stats,
-            "active_processors": len(query_processors),
+            "active_processors": query_processor_cache.size(),
             "uptime_hours": (time.time() - app_start_time) / 3600
         })
         
