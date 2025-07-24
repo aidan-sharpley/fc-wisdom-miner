@@ -193,9 +193,15 @@ class ThreadProcessor:
                 try:
                     from utils.file_utils import safe_read_json
                     metadata = safe_read_json(metadata_file)
-                    if metadata and 'base_url' in metadata:
-                        original_url = metadata['base_url']
-                        logger.info(f"Found original URL in metadata: {original_url}")
+                    if metadata:
+                        # Try multiple possible locations for the URL
+                        if 'scrape_metadata' in metadata and 'base_url' in metadata['scrape_metadata']:
+                            original_url = metadata['scrape_metadata']['base_url']
+                        elif 'base_url' in metadata:
+                            original_url = metadata['base_url']
+                        
+                        if original_url:
+                            logger.info(f"Found original URL in metadata: {original_url}")
                 except Exception as e:
                     logger.warning(f"Could not read original URL from metadata: {e}")
             
