@@ -142,18 +142,50 @@ class EmbeddingManager:
         embeddings = []
         total_batches = (len(texts) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
 
-        # Always show tqdm progress in console, plus send callback updates if available
-        with tqdm(total=total_batches, desc="Generating embeddings", unit="batch") as pbar:
+        # Always show progress in console and send callback updates if available
+        try:
+            # Try tqdm with explicit settings for Flask environment
+            from tqdm import tqdm
+            import sys
+            with tqdm(total=total_batches, desc="Generating embeddings", unit="batch", 
+                     file=sys.stdout, disable=False, ncols=80) as pbar:
+                for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+                    batch = texts[i : i + EMBEDDING_BATCH_SIZE]
+                    batch_embeddings = self._generate_single_batch(batch)
+                    embeddings.extend(batch_embeddings)
+                    
+                    # Update console progress bar
+                    pbar.update(1)
+                    pbar.set_postfix({"embeddings": len(embeddings), "total": len(texts)})
+                    
+                    # Also log progress every 10 batches or significant milestones
+                    if (i // EMBEDDING_BATCH_SIZE + 1) % 10 == 0 or len(embeddings) >= len(texts):
+                        completed = len(embeddings)
+                        progress_percent = (completed / len(texts)) * 100
+                        logger.info(f"Embedding generation progress: {completed}/{len(texts)} ({progress_percent:.1f}%)")
+                    
+                    # Also send progress callback if available (for web interface)
+                    if progress_callback:
+                        completed = len(embeddings)
+                        progress_percent = (completed / len(texts)) * 100
+                        progress_message = f"Generating embeddings: {completed}/{len(texts)} ({progress_percent:.1f}%)"
+                        progress_callback(progress_message)
+        except Exception as e:
+            # Fallback to logging-only progress if tqdm fails
+            logger.warning(f"tqdm progress bar failed: {e}, falling back to logging")
             for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
                 batch = texts[i : i + EMBEDDING_BATCH_SIZE]
                 batch_embeddings = self._generate_single_batch(batch)
                 embeddings.extend(batch_embeddings)
                 
-                # Update console progress bar
-                pbar.update(1)
-                pbar.set_postfix({"embeddings": len(embeddings), "total": len(texts)})
+                # Log progress every 10 batches or at completion
+                batch_num = i // EMBEDDING_BATCH_SIZE + 1
+                if batch_num % 10 == 0 or len(embeddings) >= len(texts):
+                    completed = len(embeddings)
+                    progress_percent = (completed / len(texts)) * 100
+                    logger.info(f"Embedding generation progress: {completed}/{len(texts)} ({progress_percent:.1f}%) - batch {batch_num}/{total_batches}")
                 
-                # Also send progress callback if available (for web interface)
+                # Send progress callback if available
                 if progress_callback:
                     completed = len(embeddings)
                     progress_percent = (completed / len(texts)) * 100

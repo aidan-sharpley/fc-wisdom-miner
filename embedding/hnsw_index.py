@@ -137,28 +137,59 @@ class HNSWIndex:
         # Always show progress bars for visibility
         if len(embeddings) > 100:  # Show progress for datasets > 100 items
             batch_size = 500 if len(embeddings) > 1000 else 100
-            # Always show tqdm progress in console, plus send callback updates if available
-            from tqdm import tqdm
-            with tqdm(total=len(embeddings), desc="Building HNSW index", unit="embeddings") as pbar:
+            total_batches = (len(embeddings) + batch_size - 1) // batch_size
+            
+            try:
+                # Try tqdm with explicit settings for Flask environment
+                from tqdm import tqdm
+                import sys
+                with tqdm(total=len(embeddings), desc="Building HNSW index", unit="embeddings",  
+                         file=sys.stdout, disable=False, ncols=80) as pbar:
+                    for i in range(0, len(embeddings), batch_size):
+                        batch_embeddings = embedding_matrix[i:i + batch_size]
+                        batch_indices = indices[i:i + batch_size]
+                        self.index.add_items(batch_embeddings, batch_indices)
+                        
+                        # Update console progress bar
+                        pbar.update(len(batch_embeddings))
+                        
+                        # Log progress periodically
+                        batch_num = (i // batch_size) + 1
+                        if batch_num % 5 == 0 or i + batch_size >= len(embeddings):
+                            completed = min(i + batch_size, len(embeddings))
+                            progress_percent = (completed / len(embeddings)) * 100
+                            logger.info(f"HNSW index building progress: {completed}/{len(embeddings)} ({progress_percent:.1f}%)")
+                        
+                        # Also send progress callback if available (for web interface)
+                        if progress_callback:
+                            completed = min(i + batch_size, len(embeddings))
+                            progress_percent = (completed / len(embeddings)) * 100
+                            progress_callback(f"Building search index: {completed}/{len(embeddings)} ({progress_percent:.1f}%)")
+            except Exception as e:
+                # Fallback to logging-only progress if tqdm fails
+                logger.warning(f"tqdm progress bar failed: {e}, falling back to logging")
                 for i in range(0, len(embeddings), batch_size):
                     batch_embeddings = embedding_matrix[i:i + batch_size]
                     batch_indices = indices[i:i + batch_size]
                     self.index.add_items(batch_embeddings, batch_indices)
                     
-                    # Update console progress bar
-                    pbar.update(len(batch_embeddings))
+                    # Log progress every few batches or at completion
+                    batch_num = (i // batch_size) + 1
+                    if batch_num % 5 == 0 or i + batch_size >= len(embeddings):
+                        completed = min(i + batch_size, len(embeddings))
+                        progress_percent = (completed / len(embeddings)) * 100
+                        logger.info(f"HNSW index building progress: {completed}/{len(embeddings)} ({progress_percent:.1f}%) - batch {batch_num}/{total_batches}")
                     
-                    # Also send progress callback if available (for web interface)
+                    # Send progress callback if available
                     if progress_callback:
                         completed = min(i + batch_size, len(embeddings))
                         progress_percent = (completed / len(embeddings)) * 100
                         progress_callback(f"Building search index: {completed}/{len(embeddings)} ({progress_percent:.1f}%)")
         else:
-            # For small datasets, just add directly but still show simple progress
-            from tqdm import tqdm
-            with tqdm(total=1, desc="Building HNSW index", unit="batch") as pbar:
-                self.index.add_items(embedding_matrix, indices)
-                pbar.update(1)
+            # For small datasets, just add directly with simple logging
+            logger.info(f"Building HNSW index for {len(embeddings)} embeddings (small dataset)")
+            self.index.add_items(embedding_matrix, indices)
+            logger.info("HNSW index building completed for small dataset")
 
         # Update metadata
         self.metadata['post_ids'].extend(post_hashes)
