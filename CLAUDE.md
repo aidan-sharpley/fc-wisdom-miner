@@ -36,8 +36,11 @@ Core dependencies:
 ### Environment Variables
 - `BASE_TMP_DIR`: Directory for data storage (default: "tmp")
 - `OLLAMA_BASE_URL`: Ollama base URL (default: "http://localhost:11434")
+- `OLLAMA_API_URL`: Direct Ollama API URL (default: "http://localhost:11434/api")
+- `OLLAMA_EMBED_API_URL`: Ollama embeddings API URL (default: "http://localhost:11434/api/embeddings")
 - `OLLAMA_CHAT_MODEL`: Model for text generation (default: "deepseek-r1:1.5b")
 - `OLLAMA_EMBED_MODEL`: Model for embeddings (default: "nomic-embed-text:v1.5")
+- `SECRET_KEY`: Flask secret key for sessions and security
 
 ## Architecture Overview
 
@@ -94,6 +97,24 @@ This is a modular forum analysis application with separate components for scrapi
 - **Engagement Metrics**: Vote distributions, reaction patterns
 - **Author Insights**: Most active contributors, authority levels
 
+#### 8. **LLM Query Router** (`analytics/llm_query_router.py`)
+- **Intelligent Query Classification**: LLM-powered query analysis and routing
+- **Context-Aware Processing**: Understands query intent and complexity
+- **Enhanced Query Expansion**: Improves vague queries with domain knowledge
+- **Smart Response Generation**: Contextual response formatting
+
+#### 9. **Platform Configuration System** (`config/platform_config.py`)
+- **Dynamic Forum Detection**: Automatically detects forum platform types
+- **YAML-Based Configurations**: Extensible platform-specific settings in `configs/platforms/`
+- **CSS Selector Management**: Platform-specific selectors for XenForo, vBulletin, phpBB
+- **Adaptive Scraping**: Adjusts scraping behavior based on platform
+
+#### 10. **Security & Utilities**
+- **Security Utils** (`utils/security.py`): Input validation, SSRF protection, sanitization
+- **Performance Analytics** (`utils/performance_analytics.py`): Comprehensive performance monitoring
+- **Advanced Caching** (`utils/advanced_cache.py`): Enhanced caching with intelligent cleanup
+- **Processing Pipeline** (`utils/processing_pipeline.py`): Modular processing workflows
+
 ### Data Storage Structure
 
 ```
@@ -113,6 +134,13 @@ tmp/
         ├── thread_analytics.json  # Thread analytics
         ├── index_hnsw.bin         # HNSW vector search index
         └── index_hnsw.bin.metadata.json # Index metadata
+
+configs/
+├── platforms/                     # Platform-specific configurations
+│   ├── generic.yaml               # Generic forum settings
+│   ├── phpbb.yaml                 # phpBB-specific selectors
+│   ├── vbulletin.yaml            # vBulletin-specific selectors
+│   └── xenforo.yaml              # XenForo-specific selectors
 ```
 
 ## Key Features
@@ -147,12 +175,15 @@ tmp/
 - **Progress Visualization**: Real-time progress bars for all major operations
 - **Performance Monitoring**: Detailed timing and operation statistics
 
-### 🛡️ **Reliability**
+### 🛡️ **Reliability & Security**
 - **Error Handling**: Exception handling with error IDs
 - **Input Validation**: Security checks for thread keys and user inputs
+- **SSRF Protection**: URL validation and malicious request prevention
+- **Data Sanitization**: Comprehensive input cleaning and validation
 - **Data Consistency**: Atomic operations and validation throughout pipeline
 - **Logging**: Structured logs with query type classification
 - **Memory Monitoring**: Optimized resource management and cleanup
+- **Performance Analytics**: Real-time monitoring and bottleneck detection
 
 ## Improvements Made
 
