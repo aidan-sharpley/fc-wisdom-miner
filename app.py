@@ -80,7 +80,7 @@ def list_available_threads() -> List[str]:
 
 
 def validate_thread_key(thread_key: str) -> bool:
-    """Validate thread key for security.
+    """Enhanced validation for thread key security.
     
     Args:
         thread_key: Thread key to validate
@@ -88,18 +88,8 @@ def validate_thread_key(thread_key: str) -> bool:
     Returns:
         True if valid, False otherwise
     """
-    if not thread_key or not isinstance(thread_key, str):
-        return False
-    
-    # Check for path traversal attempts
-    if any(char in thread_key for char in ["..", "/", "\\", "\0"]):
-        return False
-    
-    # Check length
-    if len(thread_key) > 100:
-        return False
-    
-    return True
+    from utils.security import validate_thread_key as security_validate
+    return security_validate(thread_key)
 
 
 # -------------------- Flask Routes --------------------

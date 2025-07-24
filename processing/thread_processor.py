@@ -378,29 +378,43 @@ class ThreadProcessor:
             raise
 
     def _generate_thread_key(self, url: str) -> str:
-        """Generate a unique key for a thread."""
-        # Extract meaningful parts from URL for the key
+        """Generate a secure unique key for a thread."""
         import hashlib
         from urllib.parse import urlparse
+        from utils.security import sanitize_thread_key_component, validate_thread_key
 
         parsed = urlparse(url)
-        # Use domain + path + query for uniqueness
+        # Use domain + path + query for uniqueness with SHA-256 for better security
         key_base = f"{parsed.netloc}{parsed.path}{parsed.query}"
-        key_hash = hashlib.md5(key_base.encode()).hexdigest()[:12]
+        key_hash = hashlib.sha256(key_base.encode('utf-8')).hexdigest()[:12]
 
-        # Try to extract a readable part
+        # Try to extract a readable part and sanitize it
         path_parts = parsed.path.strip("/").split("/")
         readable_part = None
 
         for part in reversed(path_parts):
-            if part and len(part) > 2 and not part.isdigit():
-                readable_part = part[:20]  # Limit length
-                break
+            if part and len(part) > 2:
+                sanitized_part = sanitize_thread_key_component(part, max_length=20)
+                if sanitized_part:  # Only use if sanitization produced valid result
+                    readable_part = sanitized_part
+                    break
 
+        # Generate the thread key
         if readable_part:
-            return f"{readable_part}_{key_hash}"
+            thread_key = f"{readable_part}_{key_hash}"
         else:
-            return f"thread_{key_hash}"
+            thread_key = f"thread_{key_hash}"
+        
+        # Validate the generated key for security
+        if not validate_thread_key(thread_key):
+            # Fallback to hash-only if validation fails
+            thread_key = f"thread_{key_hash}"
+            
+            # If even the fallback fails, use a simple secure format
+            if not validate_thread_key(thread_key):
+                thread_key = f"thread_{hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]}"
+        
+        return thread_key
 
     def _is_thread_current(self, thread_dir: str, max_age_hours: int = 24) -> bool:
         """Check if a thread is current and doesn't need re-processing."""

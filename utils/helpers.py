@@ -52,7 +52,7 @@ def post_hash(content: str, author: str = "", date: str = "") -> str:
 
 
 def normalize_url(url: str) -> str:
-    """Ensure URL has proper schema and basic validation.
+    """Ensure URL has proper schema and comprehensive security validation.
     
     Args:
         url: Input URL string
@@ -61,24 +61,15 @@ def normalize_url(url: str) -> str:
         Normalized URL with proper schema
         
     Raises:
-        ValueError: If URL is invalid after normalization
+        ValueError: If URL is invalid or poses security risks
     """
-    if not url or not isinstance(url, str):
-        raise ValueError(f"Invalid URL type: {type(url)}")
+    from .security import validate_url
     
-    url = url.strip()
-    if not url:
-        raise ValueError("Empty URL provided")
+    is_valid, result = validate_url(url)
+    if not is_valid:
+        raise ValueError(f"URL validation failed: {result}")
     
-    # Add schema if missing
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-    
-    # Basic validation
-    if not re.match(r"^https?://[^\s/$.?#].[^\s]*$", url):
-        raise ValueError(f"Malformed URL: {url}")
-    
-    return url
+    return result
 
 
 def sanitize_filename(filename: str, max_length: int = 100) -> str:
