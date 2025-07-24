@@ -522,12 +522,26 @@ def get_thread_summary(thread_key: str):
         if not validate_thread_key(thread_key):
             return jsonify({"error": "Invalid thread key"}), 400
         
+        # Load thread summary from the generated file
+        thread_dir = get_thread_dir(thread_key)
+        if not os.path.exists(thread_dir):
+            return jsonify({"error": "Thread not found"}), 404
+        
+        # Check for the new comprehensive summary file
+        summary_file = os.path.join(thread_dir, "thread_summary.json")
+        if os.path.exists(summary_file):
+            from utils.file_utils import safe_read_json
+            comprehensive_summary = safe_read_json(summary_file)
+            if comprehensive_summary:
+                return jsonify(comprehensive_summary)
+        
+        # Fallback to thread processor method for backwards compatibility
         summary = thread_processor.get_thread_summary(thread_key)
         
         if summary:
             return jsonify(summary)
         else:
-            return jsonify({"error": "Thread not found"}), 404
+            return jsonify({"error": "Thread summary not available"}), 404
             
     except Exception as e:
         logger.error(f"Error getting thread summary: {e}")

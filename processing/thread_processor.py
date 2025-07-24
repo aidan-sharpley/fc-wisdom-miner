@@ -11,6 +11,7 @@ import time
 from typing import Dict, List, Optional, Tuple
 
 from analytics.thread_analyzer import ThreadAnalyzer
+from analytics.thread_narrative import ThreadNarrative
 from config.settings import THREADS_DIR
 from embedding.embedding_manager import EmbeddingManager
 from embedding.hnsw_index import HNSWIndex
@@ -117,10 +118,14 @@ class ThreadProcessor:
                 thread_dir, processed_posts, embeddings, progress_callback
             )
 
-            # Step 6: Generate analytics
-            logger.info("Generating thread analytics")
-            analyzer = ThreadAnalyzer(thread_dir)
-            analytics = analyzer.analyze_thread(processed_posts, force_refresh=True)
+            # Step 6: Generate comprehensive analytics and narrative summary
+            logger.info("Generating comprehensive analytics and narrative summary")
+            if progress_callback:
+                progress_callback("Generating summary and analytics...")
+            narrative_generator = ThreadNarrative()
+            summary_analytics = narrative_generator.generate_narrative_and_analytics(
+                thread_dir, processed_posts
+            )
 
             # Step 7: Save processed data
             logger.info("Saving processed thread data")
@@ -129,7 +134,7 @@ class ThreadProcessor:
                 processed_posts,
                 scrape_metadata,
                 processing_stats,
-                analytics,
+                summary_analytics,
             )
 
             # Update statistics
@@ -243,10 +248,14 @@ class ThreadProcessor:
                 thread_dir, processed_posts, embeddings, progress_callback
             )
 
-            # Step 5: Generate analytics with current analytics system
-            logger.info("Regenerating thread analytics")
-            analyzer = ThreadAnalyzer(thread_dir)
-            analytics = analyzer.analyze_thread(processed_posts, force_refresh=True)
+            # Step 5: Generate comprehensive analytics and narrative summary
+            logger.info("Generating comprehensive analytics and narrative summary")
+            if progress_callback:
+                progress_callback("Generating summary and analytics...")
+            narrative_generator = ThreadNarrative()
+            summary_analytics = narrative_generator.generate_narrative_and_analytics(
+                thread_dir, processed_posts
+            )
 
             # Step 6: Save reprocessed data
             logger.info("Saving reprocessed thread data")
@@ -279,7 +288,8 @@ class ThreadProcessor:
             processing_results = {
                 "posts_count": len(processed_posts),
                 "metadata": existing_metadata,
-                "analytics_summary": analytics.get("summary", {}),
+                "analytics_summary": summary_analytics.get("analytics", {}).get("summary", {}),
+                "narrative_summary": summary_analytics.get("narrative", {}),
                 "from_cache": False,
                 "reprocessed": True,
                 "processing_time": processing_time,
@@ -391,10 +401,14 @@ class ThreadProcessor:
                 progress_callback("Rebuilding search index...")
             search_index = self._build_search_index(thread_dir, posts, embeddings, progress_callback)
 
-            # Step 3: Regenerate analytics
-            logger.info("Regenerating thread analytics")
-            analyzer = ThreadAnalyzer(thread_dir)
-            analytics = analyzer.analyze_thread(posts, force_refresh=True)
+            # Step 3: Generate comprehensive analytics and narrative summary
+            logger.info("Generating comprehensive analytics and narrative summary")
+            if progress_callback:
+                progress_callback("Generating summary and analytics...")
+            narrative_generator = ThreadNarrative()
+            summary_analytics = narrative_generator.generate_narrative_and_analytics(
+                thread_dir, posts
+            )
 
             # Step 4: Update metadata
             logger.info("Updating thread metadata")
@@ -418,7 +432,8 @@ class ThreadProcessor:
             processing_results = {
                 "posts_count": len(posts),
                 "metadata": existing_metadata,
-                "analytics_summary": analytics.get("summary", {}),
+                "analytics_summary": summary_analytics.get("analytics", {}).get("summary", {}),
+                "narrative_summary": summary_analytics.get("narrative", {}),
                 "from_cache": False,
                 "reprocessed": True,
                 "processing_time": processing_time,
@@ -549,7 +564,7 @@ class ThreadProcessor:
         posts: List[Dict],
         scrape_metadata: Dict,
         processing_stats: Dict,
-        analytics: Dict,
+        summary_analytics: Dict,
     ) -> Dict:
         """Save all thread data to disk."""
         import os
@@ -571,12 +586,13 @@ class ThreadProcessor:
         metadata_file = f"{thread_dir}/metadata.json"
         atomic_write_json(metadata_file, metadata)
 
-        # Analytics are saved by ThreadAnalyzer
+        # Analytics and narrative summary are saved by ThreadNarrative
 
         return {
             "posts_count": len(posts),
             "metadata": metadata,
-            "analytics_summary": analytics.get("summary", {}),
+            "analytics_summary": summary_analytics.get("analytics", {}).get("summary", {}),
+            "narrative_summary": summary_analytics.get("narrative", {}),
             "from_cache": False,
         }
 

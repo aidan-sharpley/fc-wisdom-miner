@@ -717,41 +717,42 @@
     </button>
   </form>
 
-  <!-- Advanced Summarization Section -->
+  <!-- Thread Summary and Analytics Section -->
   <div id="summary-section" class="analytics-section hidden">
     <div class="analytics-header">
-      <span>🤖 AI-Powered Thread Summary</span>
+      <span>📄 Thread Summary & Analytics</span>
       <div class="analytics-controls">
-        <select id="thread-summary-select" class="analytics-select">
-          <option value="">Select thread to summarize...</option>
-          {% for thread in threads %}
-          <option value="{{ thread }}">{{ thread }}</option>
-          {% endfor %}
-        </select>
-        <select id="max-posts-select" class="analytics-select">
-          <option value="10">Analyze Top 10 Posts</option>
-          <option value="15" selected>Analyze Top 15 Posts</option>
-          <option value="20">Analyze Top 20 Posts</option>
-        </select>
-        <button type="button" id="generate-summary-btn" class="analytics-button" disabled>Generate Summary</button>
         <button type="button" id="hide-summary-btn" class="analytics-button">Hide</button>
       </div>
     </div>
     <div class="analytics-content">
       <div id="summary-loading" class="no-data-message hidden">
         <div class="spinner" style="border-color: #3498db; border-top-color: transparent; margin: 0 auto 1em auto;"></div>
-        <p>Analyzing top posts and generating comprehensive summary...</p>
-        <small>This may take 30-60 seconds depending on thread complexity.</small>
+        <p>Thread summary and analytics are generated automatically during processing...</p>
       </div>
       <div id="summary-no-data" class="no-data-message">
-        Select a thread from the dropdown above to generate an AI-powered comprehensive summary using the most important posts.
+        Summary and analytics will appear here automatically after thread processing is complete.
       </div>
       <div id="summary-content" class="hidden" style="background: white; border-radius: 8px; padding: 1.5em; margin-top: 1em; border: 1px solid #dee2e6;">
-        <div id="summary-metadata" style="background: #f8f9fa; padding: 1em; border-radius: 6px; margin-bottom: 1em; border-left: 4px solid var(--primary-color);">
-          <h4 style="margin: 0 0 0.5em 0; color: var(--secondary-color);">Summary Details</h4>
-          <div id="summary-stats" style="font-size: 14px; color: #6c757d;"></div>
+        <div id="narrative-summary" style="margin-bottom: 2em;">
+          <h3 style="color: var(--primary-color); margin-bottom: 1em;">Thread Narrative</h3>
+          <div id="thread-overview" style="background: #f8f9fa; padding: 1em; border-radius: 6px; margin-bottom: 1em; border-left: 4px solid var(--success-color);">
+            <h4 style="margin: 0 0 0.5em 0; color: var(--secondary-color);">Overview</h4>
+            <div id="overview-text" style="line-height: 1.6;"></div>
+          </div>
+          <div id="conversation-phases" style="margin-bottom: 1em;">
+            <h4 style="color: var(--secondary-color); margin-bottom: 0.8em;">Conversation Phases</h4>
+            <div id="phases-content"></div>
+          </div>
+          <div id="key-contributors" style="margin-bottom: 1em;">
+            <h4 style="color: var(--secondary-color); margin-bottom: 0.8em;">Key Contributors</h4>
+            <div id="contributors-content"></div>
+          </div>
         </div>
-        <div id="summary-text" style="line-height: 1.7; color: var(--text-color);"></div>
+        <div id="analytics-summary" style="border-top: 1px solid #dee2e6; padding-top: 1.5em;">
+          <h3 style="color: var(--primary-color); margin-bottom: 1em;">Thread Analytics</h3>
+          <div id="analytics-overview" class="analytics-grid"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -847,16 +848,20 @@
     
     // Summarization Elements
     const summarySection = document.getElementById("summary-section");
-    const threadSummarySelect = document.getElementById("thread-summary-select");
-    const maxPostsSelect = document.getElementById("max-posts-select");
-    const generateSummaryBtn = document.getElementById("generate-summary-btn");
     const hideSummaryBtn = document.getElementById("hide-summary-btn");
     const summaryLoading = document.getElementById("summary-loading");
     const summaryNoData = document.getElementById("summary-no-data");
     const summaryContent = document.getElementById("summary-content");
-    const summaryMetadata = document.getElementById("summary-metadata");
-    const summaryStats = document.getElementById("summary-stats");
-    const summaryText = document.getElementById("summary-text");
+    
+    // Narrative Elements
+    const threadOverview = document.getElementById("thread-overview");
+    const overviewText = document.getElementById("overview-text");
+    const conversationPhases = document.getElementById("conversation-phases");
+    const phasesContent = document.getElementById("phases-content");
+    const keyContributors = document.getElementById("key-contributors");
+    const contributorsContent = document.getElementById("contributors-content");
+    const analyticsSummary = document.getElementById("analytics-summary");
+    const analyticsOverview = document.getElementById("analytics-overview");
     
     // Chart instances
     let participantsChart = null;
@@ -883,7 +888,6 @@
       // Update button states
       deleteBtn.disabled = !selectedThread;
       loadAnalyticsBtn.disabled = !selectedThread;
-      generateSummaryBtn.disabled = !selectedThread;
       
       // Update UI visibility
       if (selectedThread) {
@@ -1297,7 +1301,7 @@
       }
     }
 
-    // Summarization Functions
+    // Summary and Narrative Functions
     function showSummarySection() {
       summarySection.classList.remove('hidden');
     }
@@ -1326,92 +1330,107 @@
       summaryContent.classList.add('hidden');
     }
 
-    function formatSummaryMetadata(summaryData) {
-      const metadata = summaryData.metadata || {};
-      const sourcePosts = summaryData.source_posts || {};
-      const ranking = summaryData.ranking_details || {};
+    function displayThreadNarrative(narrativeData) {
+      if (!narrativeData) return;
       
-      const processingTime = metadata.processing_time ? `${metadata.processing_time.toFixed(1)}s` : 'Unknown';
-      const postsAnalyzed = metadata.posts_analyzed || 'Unknown';
-      const totalPosts = metadata.total_posts_available || 'Unknown';
-      const wordCount = summaryData.summary?.word_count || 'Unknown';
-      const authors = sourcePosts.authors || [];
+      // Display thread overview
+      const overview = narrativeData.thread_overview || 'Thread overview not available.';
+      overviewText.textContent = overview;
       
-      return `
-        <strong>Analysis:</strong> ${postsAnalyzed} of ${totalPosts} posts analyzed in ${processingTime}<br>
-        <strong>Content:</strong> ${wordCount} words generated from ${authors.length} unique contributors<br>
-        <strong>Contributors:</strong> ${authors.slice(0, 5).join(', ')}${authors.length > 5 ? ` and ${authors.length - 5} others` : ''}<br>
-        <strong>Selection:</strong> Multi-factor ranking (semantic similarity, recency, votes, authority)
-      `;
-    }
-
-    function formatSummaryText(summaryData) {
-      const summary = summaryData.summary || {};
-      const sections = summary.sections || {};
-      const fullText = summary.full_text || '';
-      
-      // If we have structured sections, use them
-      if (Object.keys(sections).length > 0) {
-        let formattedSections = '';
-        for (const [sectionTitle, sectionContent] of Object.entries(sections)) {
-          formattedSections += `
-            <h3 style="color: var(--primary-color); margin: 1.5em 0 0.8em 0; font-size: 1.2em;">${sectionTitle}</h3>
-            <div style="margin-bottom: 1.2em; line-height: 1.6;">${sectionContent}</div>
+      // Display conversation phases
+      const phases = narrativeData.conversation_phases || [];
+      if (phases.length > 0) {
+        let phasesHtml = '';
+        phases.forEach((phase, index) => {
+          phasesHtml += `
+            <div style="background: #f8f9fa; border-radius: 6px; padding: 1em; margin-bottom: 1em; border-left: 4px solid var(--primary-color);">
+              <strong>${phase.topic}</strong> (${phase.page_range}) - ${phase.post_count} posts<br>
+              <small style="color: #6c757d;">Key participants: ${Object.keys(phase.key_participants || {}).join(', ')}</small>
+            </div>
           `;
-        }
-        return formattedSections;
+        });
+        phasesContent.innerHTML = phasesHtml;
+      } else {
+        phasesContent.innerHTML = '<p style="color: #6c757d; font-style: italic;">No conversation phases detected.</p>';
       }
       
-      // Otherwise, format the full text with basic markdown-like formatting
-      return fullText
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/\n\n/g, '<br><br>')
-        .replace(/\n/g, '<br>');
+      // Display key contributors
+      const contributors = narrativeData.key_contributors || [];
+      if (contributors.length > 0) {
+        let contributorsHtml = '<div class="analytics-grid">';
+        contributors.slice(0, 6).forEach(contributor => {
+          contributorsHtml += `
+            <div class="analytics-item" style="background: #f8f9fa; padding: 1em; border-radius: 6px;">
+              <div style="font-weight: 600; color: var(--secondary-color);">${contributor.author}</div>
+              <div class="analytics-number" style="font-size: 18px;">${contributor.post_count}</div>
+              <div class="analytics-label">Posts</div>
+              <small style="color: #6c757d;">${contributor.phases_active?.join(', ') || 'Active across thread'}</small>
+            </div>
+          `;
+        });
+        contributorsHtml += '</div>';
+        contributorsContent.innerHTML = contributorsHtml;
+      } else {
+        contributorsContent.innerHTML = '<p style="color: #6c757d; font-style: italic;">No key contributors identified.</p>';
+      }
     }
 
-    async function generateThreadSummary(threadKey, maxPosts) {
+    function displayAnalyticsSummary(analyticsData) {
+      if (!analyticsData) return;
+      
+      const summary = analyticsData.summary || {};
+      const overview = summary.overview || {};
+      
+      let analyticsHtml = `
+        <div class="analytics-item">
+          <div class="analytics-number">${overview.total_posts || 0}</div>
+          <div class="analytics-label">Total Posts</div>
+        </div>
+        <div class="analytics-item">
+          <div class="analytics-number">${overview.participants || 0}</div>
+          <div class="analytics-label">Participants</div>
+        </div>
+        <div class="analytics-item">
+          <div class="analytics-number">${overview.pages || 0}</div>
+          <div class="analytics-label">Pages</div>
+        </div>
+        <div class="analytics-item">
+          <div class="analytics-number">${overview.primary_language || 'Unknown'}</div>
+          <div class="analytics-label">Language</div>
+        </div>
+      `;
+      
+      analyticsOverview.innerHTML = analyticsHtml;
+    }
+
+    async function loadThreadSummary(threadKey) {
       if (!threadKey) return;
-
-      showSummaryLoading();
-      generateSummaryBtn.disabled = true;
-
+      
       try {
-        const response = await fetch(`/thread/${encodeURIComponent(threadKey)}/summary`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ max_posts: parseInt(maxPosts) })
-        });
+        const response = await fetch(`/thread/${encodeURIComponent(threadKey)}/summary`);
         
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+          console.log('No summary available for this thread yet');
+          return;
         }
-
+        
         const summaryData = await response.json();
         
-        // Update metadata section
-        summaryStats.innerHTML = formatSummaryMetadata(summaryData);
+        // Display narrative summary
+        if (summaryData.narrative_summary) {
+          displayThreadNarrative(summaryData.narrative_summary);
+        }
         
-        // Update summary text
-        summaryText.innerHTML = formatSummaryText(summaryData);
+        // Display analytics summary
+        if (summaryData.analytics_summary) {
+          displayAnalyticsSummary(summaryData.analytics_summary);
+        }
         
-        hideSummaryLoading();
         showSummaryContent();
+        showSummarySection();
         
       } catch (error) {
-        console.error('Error generating summary:', error);
-        hideSummaryLoading();
-        showSummaryNoData();
-        summaryNoData.innerHTML = `
-          <div style="color: var(--error-color);">
-            <strong>Error generating summary:</strong><br>
-            ${error.message}<br><br>
-            <small>Make sure the thread has been processed and Ollama is running with the chat model available.</small>
-          </div>
-        `;
-      } finally {
-        generateSummaryBtn.disabled = false;
+        console.error('Error loading summary:', error);
       }
     }
 
@@ -1419,6 +1438,11 @@
     function handleThreadSelectionChange(selectElement) {
       const selected = selectElement.value;
       updateAllThreadSelections(selected);
+      
+      // Load summary automatically when thread is selected
+      if (selected) {
+        loadThreadSummary(selected);
+      }
     }
 
     threadSelect.addEventListener("change", () => handleThreadSelectionChange(threadSelect));
@@ -1481,16 +1505,7 @@
       destroyCharts();
     });
 
-    // Summarization event handlers
-    threadSummarySelect.addEventListener("change", () => handleThreadSelectionChange(threadSummarySelect));
-
-    generateSummaryBtn.addEventListener("click", () => {
-      const maxPosts = maxPostsSelect.value;
-      if (currentSelectedThread) {
-        generateThreadSummary(currentSelectedThread, maxPosts);
-      }
-    });
-
+    // Summary section event handler
     hideSummaryBtn.addEventListener("click", () => {
       hideSummarySection();
     });
@@ -1641,12 +1656,13 @@
         updateProgress(4, "Analysis complete!");
         showStatusMessage("Thread analysis completed successfully!", "success");
         
-        // If we processed a URL and got a thread key, auto-select it
+        // If we processed a URL and got a thread key, auto-select it and load summary
         if (url && extractedThreadKey) {
           // Add delay to ensure backend processing is complete
           setTimeout(() => {
             selectNewThread(extractedThreadKey);
-            showStatusMessage(`Thread '${extractedThreadKey}' is now selected and ready for analytics and summarization.`, 'success');
+            loadThreadSummary(extractedThreadKey);
+            showStatusMessage(`Thread '${extractedThreadKey}' is now selected with summary and analytics available.`, 'success');
           }, 1000);
         }
         
