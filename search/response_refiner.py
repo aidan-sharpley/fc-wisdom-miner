@@ -54,11 +54,18 @@ class ResponseRefiner:
                 logger.info("Response already clean, skipping refinement")
                 return raw_response
             
-            # Build refinement prompt
-            refinement_prompt = self._build_refinement_prompt(raw_response, query, query_type)
+            # Step 1: Clean obvious problems with text processing
+            pre_cleaned = self._pre_clean_response(raw_response)
             
-            # Get refined response from LLM
-            refined_response = self._get_refined_response(refinement_prompt)
+            # Step 2: Use LLM refinement only if still needed
+            if self._is_response_already_clean(pre_cleaned):
+                logger.info("Response cleaned with text processing only")
+                refined_response = pre_cleaned
+            else:
+                # Build refinement prompt
+                refinement_prompt = self._build_refinement_prompt(pre_cleaned, query, query_type)
+                # Get refined response from LLM
+                refined_response = self._get_refined_response(refinement_prompt)
             
             # Update statistics
             refinement_time = time.time() - start_time
@@ -105,7 +112,13 @@ class ResponseRefiner:
             "so the answer would",
             "here's a cleaner",
             "there are several issues",
-            "needs improvement"
+            "needs improvement",
+            "i'm looking at this query",
+            "alright, i",
+            "first, i need",
+            "my goal is to",
+            "<think>",
+            "</think>"
         ]
         
         response_lower = response.lower()
@@ -125,6 +138,50 @@ class ResponseRefiner:
         
         return True  # Default to clean if unsure
     
+    def _pre_clean_response(self, raw_response: str) -> str:
+        """Pre-clean response using text processing to remove obvious issues.
+        
+        Args:
+            raw_response: Raw response to clean
+            
+        Returns:
+            Pre-cleaned response
+        """
+        import re
+        
+        # Remove <think> tags and their content completely
+        cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Remove common thinking phrases
+        thinking_patterns = [
+            r'let me think.*?\.', 
+            r'i\'m looking at this.*?\.', 
+            r'alright,? i.*?\.', 
+            r'first,? looking at.*?\.', 
+            r'okay,? so.*?\.', 
+            r'putting all this together.*?\.', 
+            r'so the answer would.*?\.', 
+            r'let me analyze.*?\.', 
+            r'i need to figure out.*?\.',
+            r'my goal is to.*?\.',
+            r'post \d+ from.*?\.',
+            r'looking at the posts.*?\.'
+        ]
+        
+        for pattern in thinking_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+        
+        # Clean up extra whitespace and line breaks
+        cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned)  # Remove triple+ line breaks
+        cleaned = re.sub(r'^\s+', '', cleaned, flags=re.MULTILINE)  # Remove leading whitespace
+        cleaned = cleaned.strip()
+        
+        # If we removed everything, return a basic fallback
+        if not cleaned or len(cleaned) < 20:
+            return "Information about this topic is available in the forum posts."
+        
+        return cleaned
+    
     def _build_refinement_prompt(self, raw_response: str, query: str, query_type: str) -> str:
         """Build prompt for refining the response.
         
@@ -136,24 +193,22 @@ class ResponseRefiner:
         Returns:
             Refinement prompt
         """
-        refinement_prompt = f"""Please refine this response to make it clear, concise, and user-friendly.
+        refinement_prompt = f"""Turn this into a well-formatted answer. Focus on structure and clarity. DO NOT change any factual information.
 
-ORIGINAL QUERY: "{query}"
+USER ASKED: "{query}"
 
-RAW RESPONSE TO REFINE:
+TEXT TO IMPROVE:
 {raw_response}
 
-REFINEMENT INSTRUCTIONS:
-1. Remove any "thinking out loud" or stream-of-consciousness elements
-2. Focus on the key information that directly answers the user's question
-3. Use clear formatting with headers (##) and bullet points (•) where appropriate
-4. Keep technical information but make it accessible
-5. Provide specific, actionable information
-6. If the response mentions temperature ranges, product names, or specific recommendations, keep those details
-7. Remove unnecessary explanations about your reasoning process
-8. Start directly with the answer, not preambles like "Based on the information..."
+Make it:
+- Well-structured with ## headers and • bullet points
+- Direct and to-the-point
+- Remove any references to "posts" or "looking at" 
+- Start with the main answer
+- Use professional formatting
+- IMPORTANT: Keep all factual information exactly as stated (temperatures, numbers, etc.)
 
-REFINED RESPONSE:"""
+IMPROVED ANSWER:"""
 
         return refinement_prompt
     
