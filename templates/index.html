@@ -879,9 +879,6 @@
       // Update analytics thread selection
       threadAnalyticsSelect.value = selectedThread || '';
       
-      // Update summary thread selection
-      threadSummarySelect.value = selectedThread || '';
-      
       // Update current state
       currentSelectedThread = selectedThread;
       
@@ -920,7 +917,6 @@
       // Add to all select elements
       threadSelect.appendChild(option.cloneNode(true));
       threadAnalyticsSelect.appendChild(option.cloneNode(true));
-      threadSummarySelect.appendChild(option.cloneNode(true));
     }
 
     function removeThreadFromAllSelections(threadKey) {
@@ -930,7 +926,7 @@
       availableThreads = availableThreads.filter(t => t !== threadKey);
       
       // Remove from all select elements
-      [threadSelect, threadAnalyticsSelect, threadSummarySelect].forEach(select => {
+      [threadSelect, threadAnalyticsSelect].forEach(select => {
         const option = select.querySelector(`option[value="${threadKey}"]`);
         if (option) option.remove();
       });
@@ -947,7 +943,7 @@
         const data = await response.json();
         
         // Clear all selections
-        [threadSelect, threadAnalyticsSelect, threadSummarySelect].forEach(select => {
+        [threadSelect, threadAnalyticsSelect].forEach(select => {
           // Keep the default option, remove others
           const options = select.querySelectorAll('option:not([value=""])');
           options.forEach(option => option.remove());
@@ -965,7 +961,6 @@
           
           threadSelect.appendChild(option.cloneNode(true));
           threadAnalyticsSelect.appendChild(option.cloneNode(true));
-          threadSummarySelect.appendChild(option.cloneNode(true));
         });
         
       } catch (error) {
