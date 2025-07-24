@@ -15,6 +15,7 @@ from analytics.data_analyzer import ForumDataAnalyzer
 from analytics.query_analytics import ConversationalQueryProcessor
 from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
+from search.response_refiner import ResponseRefiner
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class QueryProcessor:
         self.search_engine = SemanticSearchEngine(thread_dir)
         self.query_analyzer = ConversationalQueryProcessor()
         self.data_analyzer = ForumDataAnalyzer(thread_dir)
+        self.response_refiner = ResponseRefiner()
         
         # LLM configuration
         self.chat_url = f"{OLLAMA_BASE_URL}/api/chat"
@@ -125,18 +127,22 @@ class QueryProcessor:
             
             # Step 6: Get LLM response
             if stream:
-                response_generator = self._get_streaming_response(enhanced_prompt)
+                raw_response_generator = self._get_streaming_response(enhanced_prompt)
+                refined_response_generator = self.response_refiner.refine_response_stream(
+                    raw_response_generator, query, 'semantic'
+                )
                 return {
                     'query': query,
                     'analysis': query_analysis,
                     'search_metadata': search_metadata,
                     'context_posts': len(search_results),
-                    'response_stream': response_generator,
+                    'response_stream': refined_response_generator,
                     'processing_time': time.time() - start_time,
                     'query_type': 'semantic'
                 }
             else:
-                response_text = self._get_complete_response(enhanced_prompt)
+                raw_response_text = self._get_complete_response(enhanced_prompt)
+                response_text = self.response_refiner.refine_response(raw_response_text, query, 'semantic')
                 processing_time = time.time() - start_time
                 
                 # Update statistics
@@ -383,7 +389,8 @@ class QueryProcessor:
             'average_llm_time': (
                 self.stats['total_llm_time'] / max(1, self.stats['llm_calls'])
             ),
-            'search_engine_stats': self.search_engine.get_stats()
+            'search_engine_stats': self.search_engine.get_stats(),
+            'response_refiner_stats': self.response_refiner.get_stats()
         }
     
     def _generate_analytical_response_stream(self, analytical_result: Dict):
