@@ -4,7 +4,7 @@ This is a high-performance forum analysis application that uses local LLMs to pr
 
 Designed to run efficiently on consumer hardware (8GB RAM), this Flask-based tool scrapes entire forum threads, processes and enriches the content, and builds a sophisticated local search engine. It features a unique dual-engine query system that can distinguish between:
 
-- **Analytical questions** (e.g., "Who is the most active user?") and
+- **Analytical questions** (e.g., "Who is the most active user?", "Who created this thread?") and
 - **Semantic questions** (e.g., "What are the best heating techniques?").
 
 The system provides data-driven answers for analytical queries and context-aware responses for semantic queries. Results are generated automatically and users should verify important information.
@@ -12,6 +12,7 @@ The system provides data-driven answers for analytical queries and context-aware
 ## ✨ Key Features
 
 - 🎯 **Dual-Engine Query System**: Provides analytical (data-driven) and semantic (LLM-based) query processing with automatic routing.
+- 👤 **Thread Author Identification**: Metadata-grounded thread creator detection using URL parsing with high accuracy.
 - 🔗 **Clickable Post Links**: Provides direct links to the specific source posts for all analytical results, ensuring full traceability.
 - 🧠 **Local LLM Powered**: Uses Ollama with deepseek-r1:1.5b and nomic-embed-text models for privacy and performance.
 - 🔄 **Smart Reprocessing**: Re-analyze existing threads without re-downloading using saved HTML.
@@ -28,7 +29,7 @@ The system provides data-driven answers for analytical queries and context-aware
 
 - **Forum Scraper**: Respectful scraping with jitter, comprehensive page detection and HTML preservation
 - **Query Router**: LLM-powered intelligent query classification and routing
-- **Data Analyzer**: Statistical analysis with post links
+- **Data Analyzer**: Statistical analysis with post links and thread authorship detection
 - **Embedding System**: Domain-optimized vector search with HyDE enhancement
 - **Platform Manager**: Dynamic configuration for different forum platforms
 - **Security Layer**: Input validation and SSRF protection
@@ -66,6 +67,7 @@ Visit http://localhost:8080 to access the web interface.
 
 ### Existing Thread Queries
 - **Analytical**: "Who is the most active user?" → Data-driven response with post counts
+- **Thread Authorship**: "Who created this thread?" → Metadata-based creator identification
 - **Positional**: "Who was the second user to post?" → Chronological analysis with links
 - **Semantic**: "What are the best heating techniques?" → Vector search + LLM analysis
 - **Temporal**: "How did opinions change over time?" → Timeline analysis

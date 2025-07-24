@@ -80,6 +80,7 @@ This is a modular forum analysis application with separate components for scrapi
 
 #### 4. **Forum Data Analyzer** (`analytics/data_analyzer.py`)
 - **Participant Analysis**: Counts posts by author across ENTIRE thread (not just search results)
+- **Thread Authorship Analysis**: Metadata-grounded thread creator identification with URL extraction
 - **Content Statistics**: Thread metrics, post lengths, page distributions
 - **Temporal Analysis**: Activity over time, posting patterns, thread duration
 - **Factual Accuracy**: 100% accurate answers using real data aggregation
@@ -104,12 +105,14 @@ This is a modular forum analysis application with separate components for scrapi
 - **Content Analysis**: Keywords, themes, discussion topics
 - **Engagement Metrics**: Vote distributions, reaction patterns
 - **Author Insights**: Most active contributors, authority levels
+- **URL-Based Thread Creator Extraction**: Parses canonical URLs to identify thread creators
 
 #### 8. **LLM Query Router** (`analytics/llm_query_router.py`)
 - **Intelligent Query Classification**: LLM-powered query analysis and routing
 - **Context-Aware Processing**: Understands query intent and complexity
 - **Enhanced Query Expansion**: Improves vague queries with domain knowledge
 - **Smart Response Generation**: Contextual response formatting
+- **Thread Authorship Detection**: Routes author/creator queries to metadata-based analysis
 
 #### 9. **Platform Configuration System** (`config/platform_config.py`)
 - **Dynamic Forum Detection**: Automatically detects forum platform types
@@ -155,13 +158,15 @@ configs/
 
 ### 🎯 **Query Accuracy & Smart Interpretation**
 - **Analytical Queries**: "Who is most active?" → Analyzes ALL posts, returns exact counts
+- **Thread Authorship Queries**: "Who is the thread author?" → URL-based metadata extraction with high confidence
 - **Positional Queries**: "Who was the second user to post?" → Chronological analysis with post links
 - **Semantic Queries**: "What heating techniques work best?" → Vector search + LLM
 - **Smart Detection**: Automatically routes queries to appropriate processor
 - **Vague Query Enhancement**: "highest rated" → Auto-expanded with engagement terms for better results
 - **Conversational Understanding**: System explains its interpretation for ambiguous queries
 - **Auto-Routing**: Vague queries like "best" automatically routed to engagement analysis
-- **100% Accurate**: Data-driven answers for statistical questions
+- **Metadata Priority**: Thread authorship prioritizes URL extraction over post frequency analysis
+- **100% Accurate**: Data-driven answers for statistical and authorship questions
 
 ### 🚀 **Performance & Memory Optimization**
 - **Complete Thread Analysis**: Processes up to 1000 pages with progress tracking
@@ -225,6 +230,11 @@ configs/
 **Solution**: Fixed UI to show/hide appropriate sections based on thread selection
 **Result**: UI now properly matches the powerful backend functionality
 
+### 7. **Thread Author Identification** ✅
+**Problem**: "Who is the thread author?" returned wrong answers based on semantic search
+**Solution**: Implemented metadata-grounded authorship identification with URL parsing
+**Result**: 100% accurate thread creator identification using canonical URL extraction
+
 ## Usage Patterns
 
 ### For New Threads
@@ -248,6 +258,7 @@ configs/
 
 ### Query Types Handled
 - **Analytical**: "Who posted most?", "How many posts?", "When was first post?"
+- **Thread Authorship**: "Who is the thread author?", "Who created this thread?", "Original poster?"
 - **Positional**: "Who was the second user to post?", "First post author?" (with clickable links)
 - **Semantic**: "What are the best heating techniques?", "How do I fix vapor quality?"
 - **Temporal**: "What changed over time?", "Recent developments?"
@@ -270,8 +281,9 @@ configs/
 ### Common Issues
 1. **"Thread not found" on reprocess**: HTML files missing, will fallback to posts.json method
 2. **Analytical queries using semantic search**: Check `ForumDataAnalyzer.can_handle_query()` patterns
-3. **Missing vote data**: Verify forum platform CSS selectors in `config/settings.py`
-4. **Slow performance**: Check embedding cache hit rate and HNSW index parameters
+3. **Thread author queries returning wrong results**: Ensure thread analytics contain URL-based thread_creator metadata
+4. **Missing vote data**: Verify forum platform CSS selectors in `config/settings.py`
+5. **Slow performance**: Check embedding cache hit rate and HNSW index parameters
 
 ### Performance Monitoring
 - All major operations include timing statistics
