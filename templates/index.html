@@ -7,6 +7,8 @@
   <title>Forum Wisdom Miner - Advanced Thread Analysis</title>
   <!-- Add markdown parser -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Add Chart.js for analytics visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
   <style>
     :root {
       --primary-color: #3498db;
@@ -475,6 +477,117 @@
       60% { content: '..'; }
       80%, 100% { content: '...'; }
     }
+
+    /* Visual Analytics Section */
+    .analytics-section {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 2em;
+      overflow: hidden;
+    }
+
+    .analytics-header {
+      background: var(--success-color);
+      color: white;
+      padding: 1em;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .analytics-content {
+      padding: 1.5em;
+    }
+
+    .charts-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 2em;
+      margin-top: 1em;
+    }
+
+    .chart-wrapper {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 1em;
+      border: 1px solid #dee2e6;
+    }
+
+    .chart-title {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: var(--secondary-color);
+      margin-bottom: 1em;
+      text-align: center;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 300px;
+      width: 100%;
+    }
+
+    .analytics-controls {
+      display: flex;
+      align-items: center;
+      gap: 1em;
+      margin-bottom: 1em;
+      flex-wrap: wrap;
+    }
+
+    .analytics-select {
+      padding: 8px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .analytics-button {
+      padding: 8px 16px;
+      background: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.3s ease;
+    }
+
+    .analytics-button:hover {
+      background: #2980b9;
+    }
+
+    .analytics-button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+
+    .no-data-message {
+      text-align: center;
+      color: #7f8c8d;
+      font-style: italic;
+      padding: 2em;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border: 1px dashed #dee2e6;
+    }
+
+    @media (max-width: 768px) {
+      .charts-container {
+        grid-template-columns: 1fr;
+      }
+      
+      .chart-container {
+        height: 250px;
+      }
+      
+      .analytics-controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
   </style>
 </head>
 
@@ -604,6 +717,85 @@
     </button>
   </form>
 
+  <!-- Advanced Summarization Section -->
+  <div id="summary-section" class="analytics-section hidden">
+    <div class="analytics-header">
+      <span>🤖 AI-Powered Thread Summary</span>
+      <div class="analytics-controls">
+        <select id="thread-summary-select" class="analytics-select">
+          <option value="">Select thread to summarize...</option>
+          {% for thread in threads %}
+          <option value="{{ thread }}">{{ thread }}</option>
+          {% endfor %}
+        </select>
+        <select id="max-posts-select" class="analytics-select">
+          <option value="10">Analyze Top 10 Posts</option>
+          <option value="15" selected>Analyze Top 15 Posts</option>
+          <option value="20">Analyze Top 20 Posts</option>
+        </select>
+        <button type="button" id="generate-summary-btn" class="analytics-button" disabled>Generate Summary</button>
+        <button type="button" id="hide-summary-btn" class="analytics-button">Hide</button>
+      </div>
+    </div>
+    <div class="analytics-content">
+      <div id="summary-loading" class="no-data-message hidden">
+        <div class="spinner" style="border-color: #3498db; border-top-color: transparent; margin: 0 auto 1em auto;"></div>
+        <p>Analyzing top posts and generating comprehensive summary...</p>
+        <small>This may take 30-60 seconds depending on thread complexity.</small>
+      </div>
+      <div id="summary-no-data" class="no-data-message">
+        Select a thread from the dropdown above to generate an AI-powered comprehensive summary using the most important posts.
+      </div>
+      <div id="summary-content" class="hidden" style="background: white; border-radius: 8px; padding: 1.5em; margin-top: 1em; border: 1px solid #dee2e6;">
+        <div id="summary-metadata" style="background: #f8f9fa; padding: 1em; border-radius: 6px; margin-bottom: 1em; border-left: 4px solid var(--primary-color);">
+          <h4 style="margin: 0 0 0.5em 0; color: var(--secondary-color);">Summary Details</h4>
+          <div id="summary-stats" style="font-size: 14px; color: #6c757d;"></div>
+        </div>
+        <div id="summary-text" style="line-height: 1.7; color: var(--text-color);"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Visual Analytics Section -->
+  <div id="analytics-section" class="analytics-section hidden">
+    <div class="analytics-header">
+      <span>📊 Visual Analytics</span>
+      <div class="analytics-controls">
+        <select id="thread-analytics-select" class="analytics-select">
+          <option value="">Select thread for analytics...</option>
+          {% for thread in threads %}
+          <option value="{{ thread }}">{{ thread }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" id="load-analytics-btn" class="analytics-button" disabled>Load Analytics</button>
+        <button type="button" id="hide-analytics-btn" class="analytics-button">Hide</button>
+      </div>
+    </div>
+    <div class="analytics-content">
+      <div id="analytics-loading" class="no-data-message hidden">
+        <div class="spinner" style="border-color: #3498db; border-top-color: transparent; margin: 0 auto 1em auto;"></div>
+        Loading analytics data...
+      </div>
+      <div id="analytics-no-data" class="no-data-message">
+        Select a thread from the dropdown above to view detailed analytics and visualizations.
+      </div>
+      <div id="analytics-charts" class="charts-container hidden">
+        <div class="chart-wrapper">
+          <div class="chart-title">Top 5 Most Active Participants</div>
+          <div class="chart-container">
+            <canvas id="participants-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-wrapper">
+          <div class="chart-title">Posting Activity Over Time</div>
+          <div class="chart-container">
+            <canvas id="activity-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Response Panel -->
   <div id="response-panel" class="response-panel hidden">
     <div class="response-header">
@@ -639,6 +831,32 @@
     const analyticsParticipants = document.getElementById("analytics-participants");
     const analyticsPages = document.getElementById("analytics-pages");
     const analyticsKeywords = document.getElementById("analytics-keywords");
+    
+    // Visual Analytics Elements
+    const analyticsSection = document.getElementById("analytics-section");
+    const threadAnalyticsSelect = document.getElementById("thread-analytics-select");
+    const loadAnalyticsBtn = document.getElementById("load-analytics-btn");
+    const hideAnalyticsBtn = document.getElementById("hide-analytics-btn");
+    const analyticsLoading = document.getElementById("analytics-loading");
+    const analyticsNoData = document.getElementById("analytics-no-data");
+    const analyticsCharts = document.getElementById("analytics-charts");
+    
+    // Summarization Elements
+    const summarySection = document.getElementById("summary-section");
+    const threadSummarySelect = document.getElementById("thread-summary-select");
+    const maxPostsSelect = document.getElementById("max-posts-select");
+    const generateSummaryBtn = document.getElementById("generate-summary-btn");
+    const hideSummaryBtn = document.getElementById("hide-summary-btn");
+    const summaryLoading = document.getElementById("summary-loading");
+    const summaryNoData = document.getElementById("summary-no-data");
+    const summaryContent = document.getElementById("summary-content");
+    const summaryMetadata = document.getElementById("summary-metadata");
+    const summaryStats = document.getElementById("summary-stats");
+    const summaryText = document.getElementById("summary-text");
+    
+    // Chart instances
+    let participantsChart = null;
+    let activityChart = null;
 
     // Progress tracking
     let currentStep = 0;
@@ -731,6 +949,357 @@
       updateAnalyticsPreview(null);
     }
 
+    // Visual Analytics Functions
+    function showAnalyticsSection() {
+      analyticsSection.classList.remove('hidden');
+    }
+
+    function hideAnalyticsSection() {
+      analyticsSection.classList.add('hidden');
+    }
+
+    function showAnalyticsLoading() {
+      analyticsLoading.classList.remove('hidden');
+      analyticsNoData.classList.add('hidden');
+      analyticsCharts.classList.add('hidden');
+    }
+
+    function hideAnalyticsLoading() {
+      analyticsLoading.classList.add('hidden');
+    }
+
+    function showAnalyticsCharts() {
+      analyticsCharts.classList.remove('hidden');
+      analyticsNoData.classList.add('hidden');
+    }
+
+    function showAnalyticsNoData() {
+      analyticsNoData.classList.remove('hidden');
+      analyticsCharts.classList.add('hidden');
+    }
+
+    function destroyCharts() {
+      if (participantsChart) {
+        participantsChart.destroy();
+        participantsChart = null;
+      }
+      if (activityChart) {
+        activityChart.destroy();
+        activityChart = null;
+      }
+    }
+
+    function createParticipantsChart(analyticsData) {
+      const ctx = document.getElementById('participants-chart').getContext('2d');
+      
+      // Extract top 5 participants by post count
+      const participants = analyticsData.participants?.authors || {};
+      const sortedParticipants = Object.entries(participants)
+        .sort(([,a], [,b]) => b.post_count - a.post_count)
+        .slice(0, 5);
+
+      const labels = sortedParticipants.map(([name]) => name);
+      const data = sortedParticipants.map(([,data]) => data.post_count);
+      const colors = [
+        '#3498db', '#e74c3c', '#f39c12', '#27ae60', '#9b59b6'
+      ];
+
+      participantsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Posts',
+            data: data,
+            backgroundColor: colors,
+            borderColor: colors.map(color => color + '80'),
+            borderWidth: 2,
+            borderRadius: 4,
+            borderSkipped: false,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const participant = sortedParticipants[context.dataIndex];
+                  const userData = participant[1];
+                  return [
+                    `Posts: ${userData.post_count}`,
+                    `Avg Length: ${Math.round(userData.avg_post_length)} chars`,
+                    `Pages Active: ${userData.pages_active}`
+                  ];
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                stepSize: 1
+              }
+            },
+            x: {
+              ticks: {
+                maxRotation: 45,
+                minRotation: 0
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function createActivityChart(analyticsData) {
+      const ctx = document.getElementById('activity-chart').getContext('2d');
+      
+      // Create activity timeline from participants data
+      const participants = analyticsData.participants?.authors || {};
+      const activityData = new Map();
+      
+      // Group posts by date (simplified - using position as proxy for time)
+      Object.values(participants).forEach(userData => {
+        // Create mock timeline data based on first/last post positions
+        const startPos = userData.first_post_position || 0;
+        const endPos = userData.last_post_position || startPos;
+        const posts = userData.post_count || 0;
+        
+        // Distribute posts across the range
+        for (let i = 0; i < posts; i++) {
+          const position = Math.round(startPos + (endPos - startPos) * (i / Math.max(posts - 1, 1)));
+          const dateKey = Math.floor(position / 100) * 100; // Group by hundreds
+          activityData.set(dateKey, (activityData.get(dateKey) || 0) + 1);
+        }
+      });
+
+      const sortedActivity = Array.from(activityData.entries())
+        .sort(([a], [b]) => a - b)
+        .slice(0, 20); // Show first 20 data points
+
+      const labels = sortedActivity.map(([pos]) => `Posts ${pos}-${pos + 99}`);
+      const data = sortedActivity.map(([,count]) => count);
+
+      activityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Posts',
+            data: data,
+            borderColor: '#3498db',
+            backgroundColor: '#3498db20',
+            borderWidth: 3,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: '#3498db',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+            pointHoverRadius: 7
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                stepSize: 1
+              }
+            },
+            x: {
+              ticks: {
+                maxRotation: 45,
+                minRotation: 0,
+                maxTicksLimit: 10
+              }
+            }
+          },
+          interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
+          }
+        }
+      });
+    }
+
+    async function loadThreadAnalytics(threadKey) {
+      if (!threadKey) return;
+
+      showAnalyticsLoading();
+      loadAnalyticsBtn.disabled = true;
+
+      try {
+        const response = await fetch(`/thread/${encodeURIComponent(threadKey)}/analytics`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const analyticsData = await response.json();
+        
+        // Destroy existing charts
+        destroyCharts();
+        
+        // Create new charts
+        createParticipantsChart(analyticsData);
+        createActivityChart(analyticsData);
+        
+        hideAnalyticsLoading();
+        showAnalyticsCharts();
+        
+      } catch (error) {
+        console.error('Error loading analytics:', error);
+        hideAnalyticsLoading();
+        showAnalyticsNoData();
+        analyticsNoData.innerHTML = `
+          <div style="color: var(--error-color);">
+            <strong>Error loading analytics:</strong><br>
+            ${error.message}<br><br>
+            <small>Make sure the thread has been processed and analytics are available.</small>
+          </div>
+        `;
+      } finally {
+        loadAnalyticsBtn.disabled = false;
+      }
+    }
+
+    // Summarization Functions
+    function showSummarySection() {
+      summarySection.classList.remove('hidden');
+    }
+
+    function hideSummarySection() {
+      summarySection.classList.add('hidden');
+    }
+
+    function showSummaryLoading() {
+      summaryLoading.classList.remove('hidden');
+      summaryNoData.classList.add('hidden');
+      summaryContent.classList.add('hidden');
+    }
+
+    function hideSummaryLoading() {
+      summaryLoading.classList.add('hidden');
+    }
+
+    function showSummaryContent() {
+      summaryContent.classList.remove('hidden');
+      summaryNoData.classList.add('hidden');
+    }
+
+    function showSummaryNoData() {
+      summaryNoData.classList.remove('hidden');
+      summaryContent.classList.add('hidden');
+    }
+
+    function formatSummaryMetadata(summaryData) {
+      const metadata = summaryData.metadata || {};
+      const sourcePosts = summaryData.source_posts || {};
+      const ranking = summaryData.ranking_details || {};
+      
+      const processingTime = metadata.processing_time ? `${metadata.processing_time.toFixed(1)}s` : 'Unknown';
+      const postsAnalyzed = metadata.posts_analyzed || 'Unknown';
+      const totalPosts = metadata.total_posts_available || 'Unknown';
+      const wordCount = summaryData.summary?.word_count || 'Unknown';
+      const authors = sourcePosts.authors || [];
+      
+      return `
+        <strong>Analysis:</strong> ${postsAnalyzed} of ${totalPosts} posts analyzed in ${processingTime}<br>
+        <strong>Content:</strong> ${wordCount} words generated from ${authors.length} unique contributors<br>
+        <strong>Contributors:</strong> ${authors.slice(0, 5).join(', ')}${authors.length > 5 ? ` and ${authors.length - 5} others` : ''}<br>
+        <strong>Selection:</strong> Multi-factor ranking (semantic similarity, recency, votes, authority)
+      `;
+    }
+
+    function formatSummaryText(summaryData) {
+      const summary = summaryData.summary || {};
+      const sections = summary.sections || {};
+      const fullText = summary.full_text || '';
+      
+      // If we have structured sections, use them
+      if (Object.keys(sections).length > 0) {
+        let formattedSections = '';
+        for (const [sectionTitle, sectionContent] of Object.entries(sections)) {
+          formattedSections += `
+            <h3 style="color: var(--primary-color); margin: 1.5em 0 0.8em 0; font-size: 1.2em;">${sectionTitle}</h3>
+            <div style="margin-bottom: 1.2em; line-height: 1.6;">${sectionContent}</div>
+          `;
+        }
+        return formattedSections;
+      }
+      
+      // Otherwise, format the full text with basic markdown-like formatting
+      return fullText
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/\n/g, '<br>');
+    }
+
+    async function generateThreadSummary(threadKey, maxPosts) {
+      if (!threadKey) return;
+
+      showSummaryLoading();
+      generateSummaryBtn.disabled = true;
+
+      try {
+        const response = await fetch(`/thread/${encodeURIComponent(threadKey)}/summary`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ max_posts: parseInt(maxPosts) })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const summaryData = await response.json();
+        
+        // Update metadata section
+        summaryStats.innerHTML = formatSummaryMetadata(summaryData);
+        
+        // Update summary text
+        summaryText.innerHTML = formatSummaryText(summaryData);
+        
+        hideSummaryLoading();
+        showSummaryContent();
+        
+      } catch (error) {
+        console.error('Error generating summary:', error);
+        hideSummaryLoading();
+        showSummaryNoData();
+        summaryNoData.innerHTML = `
+          <div style="color: var(--error-color);">
+            <strong>Error generating summary:</strong><br>
+            ${error.message}<br><br>
+            <small>Make sure the thread has been processed and Ollama is running with the chat model available.</small>
+          </div>
+        `;
+      } finally {
+        generateSummaryBtn.disabled = false;
+      }
+    }
+
     // Thread selection handler
     threadSelect.addEventListener("change", () => {
       const selected = threadSelect.value;
@@ -799,6 +1368,53 @@
     clearResponseBtn.addEventListener("click", () => {
       hideResponsePanel();
     });
+
+    // Analytics event handlers
+    threadAnalyticsSelect.addEventListener("change", () => {
+      const selected = threadAnalyticsSelect.value;
+      loadAnalyticsBtn.disabled = !selected;
+      if (!selected) {
+        destroyCharts();
+        showAnalyticsNoData();
+      }
+    });
+
+    loadAnalyticsBtn.addEventListener("click", () => {
+      const selectedThread = threadAnalyticsSelect.value;
+      if (selectedThread) {
+        loadThreadAnalytics(selectedThread);
+      }
+    });
+
+    hideAnalyticsBtn.addEventListener("click", () => {
+      hideAnalyticsSection();
+      destroyCharts();
+    });
+
+    // Summarization event handlers
+    threadSummarySelect.addEventListener("change", () => {
+      const selected = threadSummarySelect.value;
+      generateSummaryBtn.disabled = !selected;
+      if (!selected) {
+        showSummaryNoData();
+      }
+    });
+
+    generateSummaryBtn.addEventListener("click", () => {
+      const selectedThread = threadSummarySelect.value;
+      const maxPosts = maxPostsSelect.value;
+      if (selectedThread) {
+        generateThreadSummary(selectedThread, maxPosts);
+      }
+    });
+
+    hideSummaryBtn.addEventListener("click", () => {
+      hideSummarySection();
+    });
+
+    // Show both sections by default
+    showSummarySection();
+    showAnalyticsSection();
 
     // Enhanced form submission handler
     form.addEventListener("submit", async (e) => {

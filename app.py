@@ -395,7 +395,7 @@ def get_thread_analytics(thread_key: str):
         analyzer = ThreadAnalyzer(thread_dir)
         
         # Get full analytics
-        analytics = safe_read_json(f"{thread_dir}/analytics.json")
+        analytics = safe_read_json(f"{thread_dir}/thread_analytics.json")
         if analytics:
             return jsonify(analytics)
         else:
@@ -404,6 +404,50 @@ def get_thread_analytics(thread_key: str):
     except Exception as e:
         logger.error(f"Error getting thread analytics: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/thread/<thread_key>/summary", methods=["POST"])
+def generate_thread_summary(thread_key: str):
+    """Generate an advanced LLM-powered summary for a specific thread."""
+    try:
+        if not validate_thread_key(thread_key):
+            return jsonify({"error": "Invalid thread key"}), 400
+        
+        data = request.get_json() or {}
+        max_posts = data.get("max_posts", 15)
+        
+        # Validate max_posts parameter
+        if not isinstance(max_posts, int) or max_posts < 5 or max_posts > 25:
+            return jsonify({"error": "max_posts must be an integer between 5 and 25"}), 400
+        
+        thread_dir = get_thread_dir(thread_key)
+        
+        # Check if thread exists
+        import os
+        if not os.path.exists(thread_dir):
+            return jsonify({"error": "Thread not found"}), 404
+        
+        # Import here to avoid circular imports
+        from analytics.thread_summarizer import ThreadSummarizer
+        
+        logger.info(f"Generating summary for thread {thread_key} using {max_posts} posts")
+        
+        # Generate the summary
+        summarizer = ThreadSummarizer()
+        summary_data = summarizer.generate_summary(thread_dir, max_posts)
+        
+        # Add thread key to response
+        summary_data['thread_key'] = thread_key
+        
+        logger.info(f"Summary generated successfully for thread {thread_key}")
+        return jsonify(summary_data)
+        
+    except ValueError as e:
+        logger.error(f"Validation error generating summary for {thread_key}: {e}")
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error generating summary for {thread_key}: {e}")
+        return jsonify({"error": f"Failed to generate summary: {str(e)}"}), 500
 
 
 @app.route("/search/<thread_key>", methods=["POST"])
