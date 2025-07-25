@@ -4,8 +4,12 @@ Tracks response times, model usage, and system resource utilization.
 """
 
 import time
-import psutil
 import logging
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 from typing import Dict, List, Optional
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -55,9 +59,13 @@ class PerformanceMonitor:
                         success: bool, error_message: Optional[str] = None) -> None:
         """Record a performance metric for an LLM operation."""
         
-        # Get current system metrics
-        memory_percent = psutil.virtual_memory().percent
-        cpu_percent = psutil.cpu_percent(interval=None)
+        # Get current system metrics if available
+        if PSUTIL_AVAILABLE:
+            memory_percent = psutil.virtual_memory().percent
+            cpu_percent = psutil.cpu_percent(interval=None)
+        else:
+            memory_percent = 0.0
+            cpu_percent = 0.0
         
         metric = PerformanceMetric(
             operation=operation,
@@ -119,6 +127,15 @@ class PerformanceMonitor:
     
     def _get_system_health(self) -> Dict:
         """Get current system health metrics."""
+        if not PSUTIL_AVAILABLE:
+            return {
+                'current_memory_percent': 0,
+                'available_memory_gb': 0,
+                'current_cpu_percent': 0,
+                'recent_avg_memory': 0,
+                'memory_status': 'unknown'
+            }
+        
         memory = psutil.virtual_memory()
         cpu_percent = psutil.cpu_percent(interval=1)
         

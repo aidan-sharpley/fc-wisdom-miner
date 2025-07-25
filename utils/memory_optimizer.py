@@ -29,16 +29,23 @@ class MemoryMonitor:
     def __init__(self):
         if hasattr(self, '_initialized'):
             return
-        self._process = psutil.Process(os.getpid())
+        self._process = None
         self._cleanup_callbacks = []
         self._initialized = True
     
+    def _ensure_process(self):
+        """Lazily initialize the process object."""
+        if self._process is None:
+            self._process = psutil.Process(os.getpid())
+    
     def get_memory_usage(self) -> float:
         """Get current memory usage in bytes."""
+        self._ensure_process()
         return self._process.memory_info().rss
     
     def get_memory_percent(self) -> float:
         """Get memory usage as percentage of system memory."""
+        self._ensure_process()
         return self._process.memory_percent()
     
     def is_memory_critical(self) -> bool:

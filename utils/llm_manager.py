@@ -14,7 +14,8 @@ from config.settings import (
     OLLAMA_FALLBACK_MODEL, LLM_TIMEOUT_FAST, LLM_TIMEOUT_NARRATIVE, 
     LLM_TIMEOUT_FALLBACK
 )
-from utils.performance_monitor import performance_monitor
+# Lazy import to avoid circular dependencies
+performance_monitor = None
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class LLMManager:
             'model_usage': {},
             'avg_response_time': {}
         }
+        self._performance_monitor = None
     
     def _initialize_models(self) -> Dict[TaskType, List[ModelConfig]]:
         """Initialize model configurations with fallback chain."""
@@ -92,10 +94,8 @@ class LLMManager:
                 response_time = time.time() - start_time
                 self._update_stats(model_config.name, response_time, i > 0)
                 
-                # Record performance metrics
-                performance_monitor.record_operation(
-                    operation_name, model_config.name, response_time, True
-                )
+                # Record performance metrics (if available)
+                self._record_performance(operation_name, model_config.name, response_time, True)
                 
                 logger.debug(f"LLM response from {model_config.name} in {response_time:.2f}s")
                 return response, model_config.name
@@ -104,10 +104,8 @@ class LLMManager:
                 response_time = time.time() - start_time
                 error_msg = str(e)[:200]  # Truncate long error messages
                 
-                # Record failed attempt
-                performance_monitor.record_operation(
-                    operation_name, model_config.name, response_time, False, error_msg
-                )
+                # Record failed attempt (if available)
+                self._record_performance(operation_name, model_config.name, response_time, False, error_msg)
                 
                 logger.warning(f"Model {model_config.name} failed: {error_msg}")
                 if i == len(model_chain) - 1:  # Last model in chain
@@ -227,6 +225,24 @@ class LLMManager:
                 logger.warning(f"Model {model_name} is not available: {e}")
         
         return available
+    
+    def _record_performance(self, operation_name: str, model_name: str, 
+                          response_time: float, success: bool, error_msg: str = None):
+        """Record performance metrics if monitor is available."""
+        try:
+            if self._performance_monitor is None:
+                # Lazy import to avoid circular dependencies
+                from utils.performance_monitor import performance_monitor
+                self._performance_monitor = performance_monitor
+            
+            self._performance_monitor.record_operation(
+                operation_name, model_name, response_time, success, error_msg
+            )
+        except ImportError:
+            # Performance monitoring not available, continue without it
+            pass
+        except Exception as e:
+            logger.debug(f"Performance recording failed: {e}")
 
 
 # Global instance
