@@ -193,7 +193,6 @@ class ThreadProcessor:
             
             if os.path.exists(metadata_file):
                 try:
-                    from utils.file_utils import safe_read_json
                     metadata = safe_read_json(metadata_file)
                     if metadata:
                         # Try multiple possible locations for the URL

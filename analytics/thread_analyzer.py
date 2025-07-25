@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from config.settings import THREAD_ANALYTICS_NAME
-from utils.file_utils import atomic_write_json
+from utils.file_utils import atomic_write_json, safe_read_json
 from utils.shared_data_manager import get_data_manager
 from utils.memory_optimizer import memory_efficient
 from utils.text_utils import (

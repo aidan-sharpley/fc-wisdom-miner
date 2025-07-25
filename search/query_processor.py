@@ -18,6 +18,7 @@ from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
 from search.response_refiner import ResponseRefiner
 from search.keyword_search import KeywordSearchEngine, merge_search_results
+from utils.file_utils import safe_read_json
 from utils.shared_data_manager import get_data_manager
 from utils.memory_optimizer import memory_efficient
 
@@ -478,7 +479,6 @@ class QueryProcessor:
             
             # Try to get analytics data if available
             analytics_file = f"{self.thread_dir}/thread_analytics.json"
-            from utils.file_utils import safe_read_json
             analytics = safe_read_json(analytics_file)
             
             if analytics and 'summary' in analytics:

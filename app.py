@@ -595,8 +595,6 @@ def get_thread_summary(thread_key: str):
         # Check for the new comprehensive summary file
         summary_file = os.path.join(thread_dir, 'thread_summary.json')
         if os.path.exists(summary_file):
-            from utils.file_utils import safe_read_json
-
             comprehensive_summary = safe_read_json(summary_file)
             if comprehensive_summary:
                 return jsonify(comprehensive_summary)
