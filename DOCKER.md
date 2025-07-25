@@ -276,7 +276,7 @@ spec:
       - name: forum-analyzer
         image: forum-analyzer:latest
         ports:
-        - containerPort: 5000
+        - containerPort: 8080
         env:
         - name: BASE_TMP_DIR
           value: /app/tmp
