@@ -34,6 +34,7 @@ from search.query_processor import QueryProcessor
 from utils.file_utils import get_thread_dir, safe_read_json
 from utils.helpers import normalize_url
 from utils.memory_optimizer import MemoryMonitor, get_memory_status
+from utils.question_history import get_question_history
 from utils.shared_data_manager import get_data_manager
 
 # -------------------- Logging Configuration --------------------
@@ -506,6 +507,10 @@ def ask():
                     context_posts = query_results.get('context_posts', 0)
                     query_type = query_results.get('query_type', 'unknown')
 
+                    # Add question to history after successful completion
+                    question_history = get_question_history()
+                    question_history.add_question(thread_key, prompt)
+
                     # For analytical queries, show total posts analyzed instead of context posts
                     if query_type == 'analytical':
                         analytical_result = query_results.get('analytical_result', {})
@@ -558,6 +563,10 @@ def delete_thread():
         if success:
             # Clear from query processor cache
             query_processor_cache.clear()  # Clear entire cache as we don't have individual removal
+            
+            # Clear question history for this thread
+            question_history = get_question_history()
+            question_history.clear_thread_history(thread_key)
 
             logger.info(f'Deleted thread: {thread_key}')
             return f"Thread '{thread_key}' deleted successfully"
@@ -717,6 +726,47 @@ def search_thread(thread_key: str):
 
     except Exception as e:
         logger.error(f'Error searching thread: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/thread/<thread_key>/questions', methods=['GET'])
+def get_thread_questions(thread_key: str):
+    """Get question history for a specific thread."""
+    try:
+        if not validate_thread_key(thread_key):
+            return jsonify({'error': 'Invalid thread key'}), 400
+
+        question_history = get_question_history()
+        questions = question_history.get_questions(thread_key)
+        
+        return jsonify({
+            'thread_key': thread_key,
+            'questions': questions,
+            'count': len(questions)
+        })
+
+    except Exception as e:
+        logger.error(f'Error getting thread questions: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/thread/<thread_key>/questions', methods=['DELETE'])
+def clear_thread_questions(thread_key: str):
+    """Clear question history for a specific thread."""
+    try:
+        if not validate_thread_key(thread_key):
+            return jsonify({'error': 'Invalid thread key'}), 400
+
+        question_history = get_question_history()
+        question_history.clear_thread_history(thread_key)
+        
+        return jsonify({
+            'thread_key': thread_key,
+            'message': 'Question history cleared successfully'
+        })
+
+    except Exception as e:
+        logger.error(f'Error clearing thread questions: {e}')
         return jsonify({'error': str(e)}), 500
 
 

@@ -182,8 +182,8 @@ def validate_thread_key(thread_key: str) -> bool:
     if len(thread_key) < 1 or len(thread_key) > 100:
         return False
     
-    # Character allowlist: alphanumeric, hyphens, underscores only
-    if not re.match(r'^[a-zA-Z0-9_-]+$', thread_key):
+    # Character allowlist: alphanumeric, hyphens, underscores, dots only
+    if not re.match(r'^[a-zA-Z0-9_.-]+$', thread_key):
         return False
     
     # Prevent path traversal attempts
@@ -199,10 +199,7 @@ def validate_thread_key(thread_key: str) -> bool:
     if thread_key.lower() in reserved_names:
         return False
     
-    # Prevent leading/trailing dots or spaces
-    if thread_key.startswith('.') or thread_key.endswith('.'):
-        return False
-    
+    # Prevent leading/trailing spaces
     if thread_key.startswith(' ') or thread_key.endswith(' '):
         return False
     

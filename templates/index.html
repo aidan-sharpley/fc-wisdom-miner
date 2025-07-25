@@ -564,6 +564,36 @@
       cursor: not-allowed;
     }
 
+    /* Question History Styles */
+    .question-btn {
+      background: #f8f9fa;
+      color: var(--secondary-color);
+      border: 1px solid var(--border-color);
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
+    }
+
+    .question-btn:hover {
+      background: var(--primary-color);
+      color: white;
+      border-color: var(--primary-color);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+    }
+
+    .question-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 4px rgba(52, 152, 219, 0.3);
+    }
+
     .no-data-message {
       text-align: center;
       color: #7f8c8d;
@@ -701,6 +731,17 @@
         Your Question
       </div>
       
+      <!-- Recent Questions Section -->
+      <div id="recent-questions-section" class="hidden" style="margin-bottom: 1em;">
+        <label style="margin-bottom: 0.5em; display: flex; align-items: center; gap: 8px;">
+          <span>🕐</span>
+          Recent questions for this thread:
+        </label>
+        <div id="recent-questions-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 1em;">
+          <!-- Question buttons will be populated here -->
+        </div>
+      </div>
+      
       <label for="prompt">Ask about this thread:</label>
       <textarea id="prompt" name="prompt" rows="3" required
         placeholder="Ask anything about the thread... e.g., 'What are the main opinions?', 'Who is most active?', 'Summarize the discussion'"></textarea>
@@ -818,6 +859,10 @@
     const promptInput = document.getElementById("prompt");
     const reprocessSection = document.getElementById("reprocess-section");
     
+    // Question history elements
+    const recentQuestionsSection = document.getElementById("recent-questions-section");
+    const recentQuestionsContainer = document.getElementById("recent-questions-container");
+    
     // Global thread state management
     let currentSelectedThread = null;
     let availableThreads = [];
@@ -871,6 +916,75 @@
     let currentStep = 0;
     const steps = ['fetch', 'analyze', 'embed', 'search', 'respond'];
 
+    // Question History Functions
+    async function loadQuestionHistory(threadKey) {
+      console.log('loadQuestionHistory called with threadKey:', threadKey);
+      if (!threadKey) {
+        console.log('No threadKey provided, hiding question history');
+        hideQuestionHistory();
+        return;
+      }
+      
+      try {
+        console.log('Fetching question history for thread:', threadKey);
+        const response = await fetch(`/thread/${encodeURIComponent(threadKey)}/questions`);
+        
+        if (!response.ok) {
+          console.log('Response not OK:', response.status, response.statusText);
+          hideQuestionHistory();
+          return;
+        }
+        
+        const data = await response.json();
+        console.log('Question history data received:', data);
+        displayQuestionHistory(data.questions || []);
+        
+      } catch (error) {
+        console.error('Error loading question history:', error);
+        hideQuestionHistory();
+      }
+    }
+    
+    function displayQuestionHistory(questions) {
+      console.log('displayQuestionHistory called with questions:', questions);
+      if (!questions || questions.length === 0) {
+        console.log('No questions to display, hiding question history');
+        hideQuestionHistory();
+        return;
+      }
+      
+      // Clear existing buttons
+      recentQuestionsContainer.innerHTML = '';
+      console.log('Creating buttons for', questions.length, 'questions');
+      
+      // Create buttons for each recent question
+      questions.forEach(question => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'question-btn';
+        button.textContent = question;
+        button.title = question; // Full text on hover
+        
+        button.addEventListener('click', () => {
+          promptInput.value = question;
+          promptInput.focus();
+          // Smooth scroll to textarea
+          promptInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        
+        recentQuestionsContainer.appendChild(button);
+      });
+      
+      // Show the section
+      console.log('Showing question history section');
+      recentQuestionsSection.classList.remove('hidden');
+    }
+    
+    function hideQuestionHistory() {
+      recentQuestionsSection.classList.add('hidden');
+      recentQuestionsContainer.innerHTML = '';
+    }
+
     // Unified Thread Management Functions
     function updateAllThreadSelections(selectedThread = null) {
       // Update main thread selection
@@ -885,6 +999,9 @@
       // Update button states
       deleteBtn.disabled = !selectedThread;
       loadAnalyticsBtn.disabled = !selectedThread;
+      
+      // Load question history for selected thread
+      loadQuestionHistory(selectedThread);
       
       // Update UI visibility
       if (selectedThread) {
@@ -1432,6 +1549,7 @@
     // Thread selection handler - unified across all dropdowns
     function handleThreadSelectionChange(selectElement) {
       const selected = selectElement.value;
+      console.log('Thread selection changed to:', selected);
       updateAllThreadSelections(selected);
       
       // Load summary automatically when thread is selected
@@ -1661,6 +1779,13 @@
           }, 1000);
         }
         
+        // Refresh question history for current thread after successful query
+        if (currentSelectedThread) {
+          setTimeout(() => {
+            loadQuestionHistory(currentSelectedThread);
+          }, 500);
+        }
+        
         // Show sample analytics (would be real data in actual implementation)
         updateAnalyticsPreview({
           posts: receivedText.split('\n').length,
@@ -1684,6 +1809,23 @@
       }
     });
 
+    // Test function for debugging
+    window.testQuestionHistory = function() {
+      console.log('=== QUESTION HISTORY DEBUG TEST ===');
+      console.log('recentQuestionsSection:', recentQuestionsSection);
+      console.log('recentQuestionsContainer:', recentQuestionsContainer);
+      console.log('Current thread:', currentSelectedThread);
+      
+      // Test direct API call
+      fetch('/thread/phase3-vaporizers.48_4d5dce1be37a/questions')
+        .then(response => response.json())
+        .then(data => {
+          console.log('Direct API call result:', data);
+          displayQuestionHistory(data.questions || []);
+        })
+        .catch(error => console.error('Direct API call error:', error));
+    };
+
     // Initialize UI
     resetUI();
     
@@ -1692,6 +1834,13 @@
       // Extract available threads from the dropdowns
       const options = threadSelect.querySelectorAll('option:not([value=""])');
       availableThreads = Array.from(options).map(option => option.value);
+      
+      console.log('Page loaded. Available threads:', availableThreads);
+      console.log('DOM elements found:');
+      console.log('- threadSelect:', threadSelect);
+      console.log('- recentQuestionsSection:', recentQuestionsSection);
+      console.log('- recentQuestionsContainer:', recentQuestionsContainer);
+      console.log('You can run testQuestionHistory() in console to test manually');
     });
   </script>
 </body>

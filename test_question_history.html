@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Question History Test</title>
+    <style>
+        .hidden { display: none; }
+        .question-btn {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            border-radius: 20px;
+            margin: 4px;
+            cursor: pointer;
+        }
+        .question-btn:hover {
+            background: #3498db;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Question History Test</h1>
+    
+    <select id="thread-select">
+        <option value="">-- select a thread --</option>
+        <option value="phase3-vaporizers.48_4d5dce1be37a">phase3-vaporizers.48_4d5dce1be37a</option>
+    </select>
+    
+    <div id="recent-questions-section" class="hidden" style="margin-top: 20px;">
+        <label>🕐 Recent questions for this thread:</label>
+        <div id="recent-questions-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+            <!-- Question buttons will be populated here -->
+        </div>
+    </div>
+    
+    <div id="debug-output" style="margin-top: 20px; padding: 10px; background: #f0f0f0;">
+        <h3>Debug Output:</h3>
+        <div id="debug-log"></div>
+    </div>
+
+    <script>
+        const threadSelect = document.getElementById("thread-select");
+        const recentQuestionsSection = document.getElementById("recent-questions-section");
+        const recentQuestionsContainer = document.getElementById("recent-questions-container");
+        const debugLog = document.getElementById("debug-log");
+        
+        function log(message) {
+            debugLog.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
+            console.log(message);
+        }
+        
+        async function loadQuestionHistory(threadKey) {
+            log('loadQuestionHistory called with threadKey: ' + threadKey);
+            if (!threadKey) {
+                log('No threadKey provided, hiding question history');
+                hideQuestionHistory();
+                return;
+            }
+            
+            try {
+                log('Fetching question history for thread: ' + threadKey);
+                const response = await fetch(`http://localhost:8080/thread/${encodeURIComponent(threadKey)}/questions`);
+                
+                if (!response.ok) {
+                    log('Response not OK: ' + response.status + ' ' + response.statusText);
+                    hideQuestionHistory();
+                    return;
+                }
+                
+                const data = await response.json();
+                log('Question history data received: ' + JSON.stringify(data));
+                displayQuestionHistory(data.questions || []);
+                
+            } catch (error) {
+                log('Error loading question history: ' + error.message);
+                hideQuestionHistory();
+            }
+        }
+        
+        function displayQuestionHistory(questions) {
+            log('displayQuestionHistory called with questions: ' + JSON.stringify(questions));
+            if (!questions || questions.length === 0) {
+                log('No questions to display, hiding question history');
+                hideQuestionHistory();
+                return;
+            }
+            
+            // Clear existing buttons
+            recentQuestionsContainer.innerHTML = '';
+            log('Creating buttons for ' + questions.length + ' questions');
+            
+            // Create buttons for each recent question
+            questions.forEach(question => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'question-btn';
+                button.textContent = question;
+                button.title = question;
+                
+                button.addEventListener('click', () => {
+                    alert('Clicked: ' + question);
+                });
+                
+                recentQuestionsContainer.appendChild(button);
+            });
+            
+            // Show the section
+            log('Showing question history section');
+            recentQuestionsSection.classList.remove('hidden');
+        }
+        
+        function hideQuestionHistory() {
+            log('Hiding question history section');
+            recentQuestionsSection.classList.add('hidden');
+            recentQuestionsContainer.innerHTML = '';
+        }
+        
+        threadSelect.addEventListener("change", () => {
+            const selected = threadSelect.value;
+            log('Thread selection changed to: ' + selected);
+            loadQuestionHistory(selected);
+        });
+        
+        log('Test page loaded');
+    </script>
+</body>
+</html>
