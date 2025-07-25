@@ -1,0 +1,20 @@
+# M1 MacBook Air optimized requirements
+# Tested working configuration for 8GB M1 systems
+
+# Core ML/Data processing - M1 compatible versions
+numpy>=1.24.0,<2.0  # numpy 2.x has M1 compatibility issues with Python 3.13
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+tqdm>=4.64.0
+
+# Vector search - HNSW for efficient nearest neighbor
+hnswlib>=0.7.0
+
+# Web framework
+Flask>=2.2.0
+
+# System monitoring (optional but recommended)
+psutil>=5.9.0
+
+# Note: This configuration avoids numpy 2.x which can hang during import
+# on M1 Macs with Python 3.13. Using numpy 1.26.4 provides stability.
