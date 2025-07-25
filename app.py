@@ -777,7 +777,7 @@ def health_check():
         threads = list_available_threads()
 
         # Get basic stats
-        stats = thread_processor.get_stats()
+        stats = thread_processor.get_stats() if thread_processor else {}
 
         return jsonify(
             {

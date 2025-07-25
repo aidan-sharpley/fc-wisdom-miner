@@ -17,9 +17,20 @@ from config.settings import (
 )
 from analytics.thread_analyzer import ThreadAnalyzer
 from utils.file_utils import atomic_write_json
-from utils.llm_manager import llm_manager, TaskType
+from utils.llm_manager import TaskType
+# Lazy import to avoid blocking during module initialization
+llm_manager = None
 
 logger = logging.getLogger(__name__)
+
+
+def _get_llm_manager():
+    """Lazily import and return the llm_manager instance."""
+    global llm_manager
+    if llm_manager is None:
+        from utils.llm_manager import llm_manager as _llm_manager
+        llm_manager = _llm_manager
+    return llm_manager
 
 
 class ThreadNarrative:
@@ -60,7 +71,7 @@ class ThreadNarrative:
                 'processing_time': time.time() - start_time,
                 'total_posts': len(sorted_posts),
                 'method': 'multi_model_optimized',
-                'llm_stats': llm_manager.get_stats()
+                'llm_stats': _get_llm_manager().get_stats()
             }
         }
         
@@ -280,7 +291,7 @@ etc.
 Focus on concrete outcomes, decisions made, problems solved, or insights gained."""
         
         try:
-            batch_response, model_used = llm_manager.get_narrative_response(prompt, system_prompt)
+            batch_response, model_used = _get_llm_manager().get_narrative_response(prompt, system_prompt)
             logger.debug(f"Batch narrative generated using {model_used}")
             return self._parse_batch_response(batch_response, phase_batch, reaction_posts)
         except Exception as e:
@@ -309,7 +320,7 @@ Sample discussions:
 Focus on what was accomplished, decided, or learned in this phase."""
         
         try:
-            narrative_text, model_used = llm_manager.get_narrative_response(prompt, system_prompt)
+            narrative_text, model_used = _get_llm_manager().get_narrative_response(prompt, system_prompt)
             logger.debug(f"Single phase narrative generated using {model_used}")
         except Exception as e:
             logger.warning(f"Single phase narrative failed: {e}")
@@ -442,7 +453,7 @@ Thread Statistics:
 Focus on what the thread accomplished, key decisions made, and overall outcomes for the community."""
         
         try:
-            overview, model_used = llm_manager.get_narrative_response(overview_prompt, system_prompt)
+            overview, model_used = _get_llm_manager().get_narrative_response(overview_prompt, system_prompt)
             logger.debug(f"Thread overview generated using {model_used}")
             return overview
         except Exception as e:

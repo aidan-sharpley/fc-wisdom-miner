@@ -678,7 +678,7 @@ class ThreadProcessor:
         """Get processing statistics."""
         return {
             **self.stats,
-            "scraper_stats": self.scraper.get_stats(),
+            "scraper_stats": self.scraper.get_stats() if self.scraper else {},
             "embedding_stats": self.embedding_manager.get_stats(),
         }
 
