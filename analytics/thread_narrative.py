@@ -7,10 +7,17 @@ import logging
 import json
 import time
 import os
+import platform
 import concurrent.futures
 from collections import defaultdict, Counter
 from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
+import gc
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 from config.settings import (
     NARRATIVE_BATCH_SIZE, NARRATIVE_MAX_WORKERS
@@ -38,7 +45,31 @@ class ThreadNarrative:
     
     def __init__(self):
         self.max_workers = NARRATIVE_MAX_WORKERS
-        self.batch_size = NARRATIVE_BATCH_SIZE
+        self.batch_size = self._get_optimal_batch_size()
+        self._progress_cache = {}
+        
+    def _get_optimal_batch_size(self) -> int:
+        """Determine optimal batch size based on system resources."""
+        try:
+            # Detect M1 Mac and adjust accordingly
+            if platform.machine() == 'arm64' and platform.system() == 'Darwin':
+                if psutil:
+                    memory_gb = psutil.virtual_memory().total / (1024**3)
+                    if memory_gb <= 8:
+                        # M1 MacBook Air with 8GB - use conservative batch size
+                        return min(NARRATIVE_BATCH_SIZE, 1)
+                    elif memory_gb <= 16:
+                        # M1 MacBook Pro with 16GB - slightly larger batches
+                        return min(NARRATIVE_BATCH_SIZE, 2)
+                else:
+                    # Assume 8GB if psutil not available on M1
+                    return 1
+            
+            # Default for other systems
+            return NARRATIVE_BATCH_SIZE
+        except Exception:
+            # Fallback to conservative setting
+            return 1
         
     def generate_narrative_and_analytics(self, thread_dir: str, posts: List[Dict]) -> Dict:
         """Generate both narrative summary and analytics in a single run."""
@@ -255,7 +286,7 @@ class ThreadNarrative:
     def _generate_batch_narrative(self, phase_batch: List[Dict], all_posts: List[Dict], reaction_posts: List[Dict]) -> List[Dict]:
         """Generate narratives for a batch of phases using optimized LLM."""
         if len(phase_batch) == 1:
-            return [self._generate_single_phase_narrative(phase_batch[0], all_posts, reaction_posts)]
+            return [self._generate_single_phase_narrative_safe(phase_batch[0], all_posts, reaction_posts)]
         
         # Construct optimized batch prompt
         batch_context = []
@@ -532,6 +563,11 @@ Focus on what the thread accomplished, key decisions made, and overall outcomes 
             })
         
         return sorted(contributors, key=lambda x: x['influence_score'], reverse=True)[:10]
+    
+    def _clear_progress_cache(self):
+        """Clear progress cache to free memory."""
+        self._progress_cache.clear()
+        gc.collect()
 
 
 __all__ = ['ThreadNarrative']
