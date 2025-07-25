@@ -27,6 +27,8 @@ from processing.thread_processor import ThreadProcessor
 from search.query_processor import QueryProcessor
 from utils.file_utils import get_thread_dir, safe_read_json
 from utils.helpers import normalize_url
+from utils.memory_optimizer import MemoryMonitor, get_memory_status
+from utils.shared_data_manager import get_data_manager
 
 # -------------------- Logging Configuration --------------------
 logging.basicConfig(
@@ -44,8 +46,9 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "forum-wisdom-miner-secret-key")
 
 # -------------------- Global Components --------------------
-# Initialize main processor
+# Initialize main processor and memory monitoring
 thread_processor = ThreadProcessor()
+memory_monitor = MemoryMonitor()
 
 # Thread-safe LRU cache for query processors
 class QueryProcessorCache:
@@ -659,10 +662,11 @@ def health_check():
         
         return jsonify({
             "status": "healthy",
-            "version": "2.0-modular",
+            "version": "2.0-optimized",
             "features": FEATURES,
             "threads_available": len(threads),
             "processing_stats": stats,
+            "memory_status": get_memory_status(),
             "config": {
                 "ollama_url": OLLAMA_BASE_URL,
                 "chat_model": OLLAMA_CHAT_MODEL,

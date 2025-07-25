@@ -14,7 +14,9 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from config.settings import THREAD_ANALYTICS_NAME
-from utils.file_utils import atomic_write_json, safe_read_json
+from utils.file_utils import atomic_write_json
+from utils.shared_data_manager import get_data_manager
+from utils.memory_optimizer import memory_efficient
 from utils.text_utils import (
     calculate_readability_score,
     detect_language,
@@ -29,18 +31,15 @@ class ThreadAnalyzer:
     """Comprehensive thread analysis and analytics generation."""
 
     def __init__(self, thread_dir: str):
-        """Initialize analyzer for a specific thread.
-
-        Args:
-            thread_dir: Path to thread directory
-        """
         self.thread_dir = thread_dir
         self.analytics_path = os.path.join(thread_dir, THREAD_ANALYTICS_NAME)
+        self._data_manager = get_data_manager(thread_dir)
         self._cached_analytics = None
         self._cache_time = 0
 
+    @memory_efficient
     def analyze_thread(
-        self, posts: List[Dict], force_refresh: bool = False
+        self, posts: List[Dict] = None, force_refresh: bool = False
     ) -> Dict[str, Any]:
         """Perform comprehensive thread analysis.
 

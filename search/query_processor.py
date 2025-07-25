@@ -18,6 +18,8 @@ from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
 from search.response_refiner import ResponseRefiner
 from search.keyword_search import KeywordSearchEngine, merge_search_results
+from utils.shared_data_manager import get_data_manager
+from utils.memory_optimizer import memory_efficient
 
 logger = logging.getLogger(__name__)
 

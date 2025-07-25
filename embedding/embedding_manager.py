@@ -21,9 +21,10 @@ from config.settings import (
     OLLAMA_EMBED_MODEL,
     BASE_TMP_DIR,
 )
-from utils.advanced_cache import ContentBasedCache
+from utils.consolidated_cache import ConsolidatedCache
 from utils.helpers import hash_text
 from utils.monitoring import monitor_embedding_operation
+from utils.memory_optimizer import memory_efficient
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,9 @@ class EmbeddingManager:
         self.base_url = base_url or OLLAMA_BASE_URL
         self.embed_url = f"{self.base_url}/api/embeddings"
 
-        # Advanced cache for embeddings (M1 MacBook Air 8GB optimized)
+        # Consolidated cache for embeddings (M1 MacBook Air 8GB optimized)
         cache_dir = f"{BASE_TMP_DIR}/embeddings_cache"
-        self.cache = ContentBasedCache(cache_dir, max_size_mb=EMBEDDING_CACHE_SIZE_MB)
+        self.cache = ConsolidatedCache(cache_dir, max_size_mb=EMBEDDING_CACHE_SIZE_MB)
         
         # Legacy cache tracking for compatibility
         self._cache_hits = 0
@@ -60,6 +61,7 @@ class EmbeddingManager:
         }
 
     @monitor_embedding_operation
+    @memory_efficient
     def get_embeddings(
         self, texts: Union[str, List[str]], use_cache: bool = True, 
         preprocess: bool = True, progress_callback=None

@@ -10,43 +10,34 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from utils.file_utils import safe_read_json
+from utils.shared_data_manager import get_data_manager
+from utils.memory_optimizer import memory_efficient
 
 logger = logging.getLogger(__name__)
 
 
 class ForumDataAnalyzer:
-    """Analyzes forum data to answer statistical and analytical queries."""
+    """Memory-efficient forum data analyzer using shared data management."""
     
     def __init__(self, thread_dir: str):
-        """Initialize the data analyzer.
-        
-        Args:
-            thread_dir: Directory containing thread data
-        """
         self.thread_dir = thread_dir
-        self.posts_cache = None
-        self.analytics_cache = None
+        self._data_manager = get_data_manager(thread_dir)
     
+    @memory_efficient
     def _load_posts(self) -> List[Dict]:
-        """Load all posts from the thread."""
-        if self.posts_cache is None:
-            posts_file = f"{self.thread_dir}/posts.json"
-            self.posts_cache = safe_read_json(posts_file) or []
-            logger.info(f"Loaded {len(self.posts_cache)} posts for analysis")
-        return self.posts_cache
+        """Load posts via shared data manager."""
+        posts = self._data_manager.get_posts()
+        if posts:
+            logger.info(f"Loaded {len(posts)} posts for analysis")
+        return posts
     
     def _load_analytics(self) -> Dict:
-        """Load thread analytics if available."""
-        if self.analytics_cache is None:
-            analytics_file = f"{self.thread_dir}/thread_analytics.json"
-            self.analytics_cache = safe_read_json(analytics_file) or {}
-        return self.analytics_cache
+        """Load analytics via shared data manager."""
+        return self._data_manager.get_analytics()
     
     def _load_metadata(self) -> Dict:
-        """Load thread metadata."""
-        metadata_file = f"{self.thread_dir}/metadata.json"
-        return safe_read_json(metadata_file) or {}
+        """Load metadata via shared data manager."""
+        return self._data_manager.get_metadata()
     
     def analyze_participant_activity(self, query: str) -> Dict[str, Any]:
         """Analyze participant activity patterns.
