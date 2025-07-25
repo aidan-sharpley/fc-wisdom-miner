@@ -1,33 +1,33 @@
 """
-Advanced chronological thread summarization with topic detection and analytics.
-Optimized for M1 MacBook Air with 8GB RAM using batched LLM calls and caching.
+Advanced chronological thread summarization with multi-model optimization.
+Optimized for M1 MacBook Air with 8GB RAM using progressive fallback strategy.
 """
 
 import logging
 import json
 import time
 import os
-import asyncio
 import concurrent.futures
 from collections import defaultdict, Counter
-from typing import Dict, List, Optional, Tuple, Set
-import requests
+from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 
-from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
+from config.settings import (
+    NARRATIVE_BATCH_SIZE, NARRATIVE_MAX_WORKERS
+)
 from analytics.thread_analyzer import ThreadAnalyzer
 from utils.file_utils import atomic_write_json
+from utils.llm_manager import llm_manager, TaskType
 
 logger = logging.getLogger(__name__)
 
 
 class ThreadNarrative:
-    """Creates comprehensive thread narratives with batched LLM processing."""
+    """Creates comprehensive thread narratives with multi-model optimization."""
     
     def __init__(self):
-        self.chat_url = f"{OLLAMA_BASE_URL}/api/chat"
-        self.model = OLLAMA_CHAT_MODEL
-        self.max_workers = 3
+        self.max_workers = NARRATIVE_MAX_WORKERS
+        self.batch_size = NARRATIVE_BATCH_SIZE
         
     def generate_narrative_and_analytics(self, thread_dir: str, posts: List[Dict]) -> Dict:
         """Generate both narrative summary and analytics in a single run."""
@@ -59,7 +59,8 @@ class ThreadNarrative:
                 'generated_at': time.time(),
                 'processing_time': time.time() - start_time,
                 'total_posts': len(sorted_posts),
-                'method': 'optimized_batched'
+                'method': 'multi_model_optimized',
+                'llm_stats': llm_manager.get_stats()
             }
         }
         
@@ -68,9 +69,11 @@ class ThreadNarrative:
         return combined_result
     
     def _generate_optimized_narrative(self, posts: List[Dict], analytics: Dict) -> Dict:
-        """Generate narrative using optimized batching and clustering."""
+        """Generate narrative using multi-model optimization and batching."""
         phases = self._detect_optimized_phases(posts)
         reaction_posts = self._identify_reaction_posts(posts)
+        
+        logger.info(f"Detected {len(phases)} phases, creating {len(self._group_phases_for_batching(phases))} batches")
         
         # Group phases for batch processing
         phase_groups = self._group_phases_for_batching(phases)
@@ -85,9 +88,18 @@ class ThreadNarrative:
                 }
                 
                 for future in concurrent.futures.as_completed(future_to_group):
-                    batch_sections = future.result()
-                    narrative_sections.extend(batch_sections)
-                    pbar.update(1)
+                    try:
+                        batch_sections = future.result()
+                        narrative_sections.extend(batch_sections)
+                        pbar.set_postfix(sections=len(narrative_sections))
+                    except Exception as e:
+                        logger.error(f"Batch narrative generation failed: {e}")
+                        # Generate fallback sections for failed batch
+                        group = future_to_group[future]
+                        fallback_sections = [self._generate_fallback_narrative(phase) for phase in group]
+                        narrative_sections.extend(fallback_sections)
+                    finally:
+                        pbar.update(1)
         
         # Sort sections by original phase order
         narrative_sections.sort(key=lambda x: x['phase_summary']['sequence'])
@@ -111,34 +123,34 @@ class ThreadNarrative:
         phases = []
         current_phase_posts = []
         current_topic = None
-        page_break_threshold = 25
+        page_break_threshold = 30  # Increased for fewer, larger phases
         
         topic_indicators = {
             'design': ['design', 'prototype', 'concept', 'blueprint', 'model', 'version', 'build'],
             'shipping': ['ship', 'delivery', 'order', 'purchase', 'buy', 'price', 'cost', 'payment'],
             'reviews': ['review', 'test', 'experience', 'opinion', 'feedback', 'impression', 'rating'],
             'technical': ['specs', 'specification', 'technical', 'measurement', 'dimension', 'size'],
-            'troubleshooting': ['problem', 'issue', 'fix', 'broken', 'error', 'help', 'repair'],
-            'community': ['meet', 'group', 'community', 'together', 'social', 'gathering']
+            'troubleshooting': ['problem', 'issue', 'fix', 'broken', 'error', 'help', 'repair', 'solve'],
+            'community': ['meet', 'group', 'community', 'together', 'social', 'gathering', 'event']
         }
         
         for i, post in enumerate(posts):
             content = post.get('content', '').lower()
             
-            # Calculate topic scores
+            # Calculate topic scores with better weighting
             topic_scores = {}
             for topic, keywords in topic_indicators.items():
-                score = sum(2 if keyword in content else 0 for keyword in keywords)
+                score = sum(3 if keyword in content else 0 for keyword in keywords)
                 if score > 0:
                     topic_scores[topic] = score
             
             dominant_topic = max(topic_scores.keys(), key=lambda k: topic_scores[k]) if topic_scores else 'general'
             
-            # Check for phase transition
+            # More intelligent phase transition logic
             should_transition = (
-                (current_topic and current_topic != dominant_topic and len(current_phase_posts) >= 10) or
+                (current_topic and current_topic != dominant_topic and len(current_phase_posts) >= 15) or
                 len(current_phase_posts) >= page_break_threshold or
-                (i > 0 and posts[i-1].get('page', 1) != post.get('page', 1) and len(current_phase_posts) >= 8)
+                (i > 0 and posts[i-1].get('page', 1) != post.get('page', 1) and len(current_phase_posts) >= 12)
             )
             
             if should_transition:
@@ -173,14 +185,22 @@ class ThreadNarrative:
             for post in phase_posts
         )
         
-        # Sample representative posts
-        sample_size = min(3, len(phase_posts))
+        # Smarter representative post sampling
+        sample_size = min(4, len(phase_posts))  # Increased sample size
         if sample_size == len(phase_posts):
             sample_posts = phase_posts
         else:
-            # Take first, middle, and last posts
-            indices = [0, len(phase_posts) // 2, -1] if len(phase_posts) > 2 else [0, -1]
-            sample_posts = [phase_posts[i] for i in indices[:sample_size]]
+            # Take posts with highest engagement + beginning/end
+            scored_posts = []
+            for post in phase_posts:
+                engagement = post.get('upvotes', 0) + post.get('likes', 0) + post.get('reactions', 0)
+                content_length = len(post.get('content', ''))
+                score = engagement * 3 + (1 if content_length > 200 else 0)
+                scored_posts.append((score, post))
+            
+            # Sort by engagement and take top posts
+            scored_posts.sort(key=lambda x: x[0], reverse=True)
+            sample_posts = [post for _, post in scored_posts[:sample_size]]
         
         return {
             'sequence': sequence,
@@ -196,11 +216,11 @@ class ThreadNarrative:
         }
     
     def _group_phases_for_batching(self, phases: List[Dict]) -> List[List[Dict]]:
-        """Group phases into batches for efficient LLM processing."""
-        if len(phases) <= 4:
+        """Group phases into optimal batches for LLM processing."""
+        if len(phases) <= self.batch_size:
             return [phases]
         
-        # Group similar topics together and batch by size
+        # Group similar topics together for better context
         topic_groups = defaultdict(list)
         for phase in phases:
             topic_groups[phase['topic']].append(phase)
@@ -208,10 +228,11 @@ class ThreadNarrative:
         batches = []
         current_batch = []
         
+        # Process topic groups, trying to keep related topics together
         for topic, topic_phases in topic_groups.items():
             for phase in topic_phases:
                 current_batch.append(phase)
-                if len(current_batch) >= 4:  # Batch size of 4
+                if len(current_batch) >= self.batch_size:
                     batches.append(current_batch)
                     current_batch = []
         
@@ -221,65 +242,75 @@ class ThreadNarrative:
         return batches
     
     def _generate_batch_narrative(self, phase_batch: List[Dict], all_posts: List[Dict], reaction_posts: List[Dict]) -> List[Dict]:
-        """Generate narratives for a batch of phases in a single LLM call."""
+        """Generate narratives for a batch of phases using optimized LLM."""
         if len(phase_batch) == 1:
             return [self._generate_single_phase_narrative(phase_batch[0], all_posts, reaction_posts)]
         
-        # Construct batch prompt
+        # Construct optimized batch prompt
         batch_context = []
         for i, phase in enumerate(phase_batch, 1):
             sample_posts = phase.get('sample_posts', [])
             post_samples = []
-            for post in sample_posts[:2]:  # Reduced sample size
-                author = post.get('author', 'Unknown')
-                content = post.get('content', '')[:200]  # Reduced content length
-                post_samples.append(f"{author}: {content}...")
             
-            phase_text = f"""
-Phase {i}: {phase['topic']} ({phase['page_range']})
+            # Use best sample posts with more context
+            for post in sample_posts[:2]:
+                author = post.get('author', 'Unknown')
+                content = post.get('content', '')[:250]  # Slightly more content
+                engagement = post.get('upvotes', 0) + post.get('likes', 0)
+                engagement_note = f" (+{engagement} votes)" if engagement > 0 else ""
+                post_samples.append(f"{author}{engagement_note}: {content}...")
+            
+            phase_text = f"""Phase {i}: {phase['topic']} ({phase['page_range']})
 - {phase['post_count']} posts from: {', '.join(list(phase['key_participants'].keys())[:3])}
-- Sample posts: {' | '.join(post_samples)}
-"""
+- Key discussions: {' | '.join(post_samples)}"""
+            
             batch_context.append(phase_text.strip())
         
-        prompt = f"""
-Summarize these {len(phase_batch)} conversation phases. For each phase, write 2-3 sentences focusing on key developments:
+        system_prompt = "You are a forum discussion analyst. Create concise, informative summaries focusing on key developments and outcomes."
+        
+        prompt = f"""Analyze these {len(phase_batch)} conversation phases from a forum thread. For each phase, write 2-3 sentences highlighting the main developments, decisions, or insights:
 
 {chr(10).join(batch_context)}
 
-Format: 
-Phase 1: [summary]
-Phase 2: [summary]
+Format your response as:
+Phase 1: [2-3 sentence summary focusing on key developments]
+Phase 2: [2-3 sentence summary focusing on key developments]
 etc.
-"""
+
+Focus on concrete outcomes, decisions made, problems solved, or insights gained."""
         
         try:
-            batch_response = self._get_llm_response(prompt)
+            batch_response, model_used = llm_manager.get_narrative_response(prompt, system_prompt)
+            logger.debug(f"Batch narrative generated using {model_used}")
             return self._parse_batch_response(batch_response, phase_batch, reaction_posts)
         except Exception as e:
             logger.warning(f"Batch narrative generation failed: {e}")
             return [self._generate_fallback_narrative(phase) for phase in phase_batch]
     
     def _generate_single_phase_narrative(self, phase: Dict, all_posts: List[Dict], reaction_posts: List[Dict]) -> Dict:
-        """Generate narrative for a single phase."""
+        """Generate narrative for a single phase using optimized model."""
         sample_posts = phase.get('sample_posts', [])
         post_samples = []
+        
         for post in sample_posts[:3]:
             author = post.get('author', 'Unknown')
             content = post.get('content', '')[:300]
             post_samples.append(f"{author}: {content}...")
         
-        prompt = f"""
-Summarize this conversation phase in 2-3 sentences focusing on key developments:
+        system_prompt = "You are analyzing a forum discussion. Focus on concrete developments and outcomes."
+        
+        prompt = f"""Summarize this conversation phase in 2-3 sentences focusing on key developments:
 
 Topic: {phase['topic']} ({phase['page_range']})
 Participants: {', '.join(list(phase['key_participants'].keys()))}
-Sample posts: {chr(10).join(post_samples)}
+Sample discussions:
+{chr(10).join(post_samples)}
 
-Focus on what happened and key outcomes."""
+Focus on what was accomplished, decided, or learned in this phase."""
         
         try:
-            narrative_text = self._get_llm_response(prompt)
+            narrative_text, model_used = llm_manager.get_narrative_response(prompt, system_prompt)
+            logger.debug(f"Single phase narrative generated using {model_used}")
         except Exception as e:
             logger.warning(f"Single phase narrative failed: {e}")
             narrative_text = self._generate_fallback_narrative(phase)['narrative_text']
@@ -331,11 +362,22 @@ Focus on what happened and key outcomes."""
         return sections[:len(phases)]
     
     def _generate_fallback_narrative(self, phase: Dict) -> Dict:
-        """Generate fallback narrative when LLM fails."""
+        """Generate high-quality fallback narrative when LLM fails."""
         participant_count = len(phase['key_participants'])
-        top_participant = list(phase['key_participants'].keys())[0] if phase['key_participants'] else 'participants'
+        top_participants = list(phase['key_participants'].keys())[:2]
         
-        narrative_text = f"Discussion about {phase['topic'].lower()} with {phase['post_count']} posts across {phase['page_range']}. Key contributor was {top_participant} with {participant_count} total participants involved."
+        if len(top_participants) == 1:
+            participant_text = f"{top_participants[0]} led the discussion"
+        elif len(top_participants) == 2:
+            participant_text = f"{top_participants[0]} and {top_participants[1]} were key contributors"
+        else:
+            participant_text = f"{participant_count} participants contributed"
+        
+        engagement_text = ""
+        if phase['total_engagement'] > 0:
+            engagement_text = f" with {phase['total_engagement']} community reactions"
+        
+        narrative_text = f"Discussion about {phase['topic'].lower()} spanning {phase['post_count']} posts across {phase['page_range']}. {participant_text.capitalize()}{engagement_text}, covering key aspects of the topic."
         
         return {
             'phase_summary': phase,
@@ -364,9 +406,12 @@ Focus on what happened and key outcomes."""
             reactions = post.get('reactions', 0)
             content_length = len(post.get('content', ''))
             
+            # Enhanced engagement scoring
             engagement_score = (upvotes * 3) + (likes * 2) + reactions
             if content_length > 200:
                 engagement_score += 2
+            if content_length > 500:
+                engagement_score += 1
             
             if engagement_score > 0:
                 post_copy = post.copy()
@@ -376,28 +421,33 @@ Focus on what happened and key outcomes."""
         return sorted(scored_posts, key=lambda x: x['engagement_score'], reverse=True)[:10]
     
     def _generate_thread_overview(self, posts: List[Dict], phases: List[Dict], analytics: Dict) -> str:
-        """Generate high-level thread overview."""
+        """Generate high-level thread overview using optimized model."""
         total_posts = len(posts)
         total_participants = len(set(post.get('author', '') for post in posts))
         
         first_date = posts[0].get('date', '') if posts else ''
         last_date = posts[-1].get('date', '') if posts else ''
         
-        phase_topics = [phase['topic'] for phase in phases[:5]]  # Top 5 topics
+        phase_topics = [phase['topic'] for phase in phases[:6]]  # Top 6 topics
         
-        overview_prompt = f"""
-Create a 3-4 sentence overview of this forum thread:
+        system_prompt = "Create a concise overview of this forum thread focusing on outcomes and key developments."
+        
+        overview_prompt = f"""Create a 3-4 sentence overview of this forum discussion thread:
 
-Stats: {total_posts} posts from {total_participants} participants ({first_date} to {last_date})
-Main topics: {', '.join(phase_topics)}
+Thread Statistics:
+- {total_posts} posts from {total_participants} participants
+- Time span: {first_date} to {last_date}
+- Main discussion topics: {', '.join(phase_topics)}
 
-Focus on what the thread accomplished and key outcomes."""
+Focus on what the thread accomplished, key decisions made, and overall outcomes for the community."""
         
         try:
-            return self._get_llm_response(overview_prompt)
+            overview, model_used = llm_manager.get_narrative_response(overview_prompt, system_prompt)
+            logger.debug(f"Thread overview generated using {model_used}")
+            return overview
         except Exception as e:
             logger.warning(f"Thread overview generation failed: {e}")
-            return f"Forum discussion with {total_posts} posts covering topics: {', '.join(phase_topics)}"
+            return f"Forum discussion with {total_posts} posts from {total_participants} participants covering topics: {', '.join(phase_topics)}. The discussion spanned from {first_date} to {last_date}."
     
     def _analyze_topic_evolution(self, phases: List[Dict]) -> List[Dict]:
         """Analyze how topics evolved throughout the thread."""
@@ -471,25 +521,6 @@ Focus on what the thread accomplished and key outcomes."""
             })
         
         return sorted(contributors, key=lambda x: x['influence_score'], reverse=True)[:10]
-    
-    def _get_llm_response(self, prompt: str) -> str:
-        """Get response from LLM with timeout and error handling."""
-        try:
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False
-            }
-            
-            response = requests.post(self.chat_url, json=payload, timeout=25)
-            response.raise_for_status()
-            
-            result = response.json()
-            return result.get('message', {}).get('content', '').strip()
-            
-        except Exception as e:
-            logger.error(f"Error getting LLM response: {e}")
-            raise
 
 
 __all__ = ['ThreadNarrative']

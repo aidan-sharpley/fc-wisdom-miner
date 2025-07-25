@@ -21,9 +21,14 @@ OLLAMA_EMBED_API_URL = os.environ.get(
     'OLLAMA_EMBED_API_URL', 'http://localhost:11434/api/embeddings'
 )
 
-# Model configurations
+# Model configurations - Multi-model strategy for M1 8GB optimization
 OLLAMA_CHAT_MODEL = os.environ.get('OLLAMA_CHAT_MODEL', 'deepseek-r1:1.5b')
 OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'nomic-embed-text:v1.5')
+
+# Specialized models for different tasks
+OLLAMA_ANALYTICS_MODEL = os.environ.get('OLLAMA_ANALYTICS_MODEL', 'qwen2.5:0.5b')  # Ultra-fast for structured data
+OLLAMA_NARRATIVE_MODEL = os.environ.get('OLLAMA_NARRATIVE_MODEL', 'qwen2.5:1.5b')  # Fast for creative tasks
+OLLAMA_FALLBACK_MODEL = os.environ.get('OLLAMA_FALLBACK_MODEL', 'qwen2.5:0.5b')   # Emergency fallback
 
 # ==================== File Naming Constants ====================
 
@@ -52,7 +57,16 @@ MAX_POST_LENGTH = 10000  # Maximum characters for a valid post
 QUERY_RERANK_SIZE = 15  # Reduced from 20 to save memory
 BATCH_RERANK_TIMEOUT = 45
 FINAL_TOP_K = 7
-MAX_WORKERS = 3  # Reduced from 4 for M1 efficiency cores (8GB RAM optimal)
+MAX_WORKERS = 2  # Further reduced for narrative generation stability
+
+# LLM timeout configurations
+LLM_TIMEOUT_FAST = 30     # For analytics and structured tasks
+LLM_TIMEOUT_NARRATIVE = 45 # For narrative generation
+LLM_TIMEOUT_FALLBACK = 60  # Emergency timeout
+
+# Batch processing settings
+NARRATIVE_BATCH_SIZE = 2   # Reduced from 4 for M1 stability
+NARRATIVE_MAX_WORKERS = 2  # Concurrent narrative workers
 
 # Embedding settings optimized for M1 performance
 EMBEDDING_BATCH_SIZE = 8  # Reduced from 10 to prevent memory spikes on 8GB systems
@@ -267,6 +281,9 @@ __all__ = [
     'OLLAMA_EMBED_API_URL',
     'OLLAMA_CHAT_MODEL',
     'OLLAMA_EMBED_MODEL',
+    'OLLAMA_ANALYTICS_MODEL',
+    'OLLAMA_NARRATIVE_MODEL', 
+    'OLLAMA_FALLBACK_MODEL',
     # File names
     'INDEX_META_NAME',
     'HNSW_INDEX_NAME',
@@ -283,6 +300,11 @@ __all__ = [
     'QUERY_RERANK_SIZE',
     'FINAL_TOP_K',
     'MAX_WORKERS',
+    'LLM_TIMEOUT_FAST',
+    'LLM_TIMEOUT_NARRATIVE',
+    'LLM_TIMEOUT_FALLBACK',
+    'NARRATIVE_BATCH_SIZE',
+    'NARRATIVE_MAX_WORKERS',
     # HNSW parameters
     'HNSW_M',
     'HNSW_EF_CONSTRUCTION',
