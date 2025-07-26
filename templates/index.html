@@ -1490,25 +1490,38 @@
     function displayAnalyticsSummary(analyticsData) {
       if (!analyticsData) return;
       
-      const summary = analyticsData.summary || {};
-      const overview = summary.overview || {};
+      // Handle the actual analytics data structure
+      const metadata = analyticsData.metadata || {};
+      const participants = analyticsData.participants || {};
+      const content = analyticsData.content || {};
+      const topics = analyticsData.topics || {};
+      
+      // Extract the correct values from the actual data structure
+      const totalPosts = metadata.total_posts || 0;
+      const totalParticipants = participants.total_participants || 0;
+      const totalPages = metadata.total_pages || 0;
+      const primaryKeywords = topics.primary_keywords || [];
+      const keyTopicsCount = primaryKeywords.length || 0;
+      
+      // Also check for potential language info in content analysis
+      const language = content.language_analysis?.primary_language || 'English';
       
       let analyticsHtml = `
         <div class="analytics-item">
-          <div class="analytics-number">${overview.total_posts || 0}</div>
+          <div class="analytics-number">${totalPosts}</div>
           <div class="analytics-label">Total Posts</div>
         </div>
         <div class="analytics-item">
-          <div class="analytics-number">${overview.participants || 0}</div>
+          <div class="analytics-number">${totalParticipants}</div>
           <div class="analytics-label">Participants</div>
         </div>
         <div class="analytics-item">
-          <div class="analytics-number">${overview.pages || 0}</div>
+          <div class="analytics-number">${totalPages}</div>
           <div class="analytics-label">Pages</div>
         </div>
         <div class="analytics-item">
-          <div class="analytics-number">${overview.primary_language || 'Unknown'}</div>
-          <div class="analytics-label">Language</div>
+          <div class="analytics-number">${keyTopicsCount}</div>
+          <div class="analytics-label">Key Topics</div>
         </div>
       `;
       

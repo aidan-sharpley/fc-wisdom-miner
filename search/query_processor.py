@@ -298,39 +298,42 @@ class QueryProcessor:
         # Add enhanced thread-level context if available
         thread_context = ""
         if hasattr(self.search_engine, 'thread_analytics') and self.search_engine.thread_analytics:
-            analytics = self.search_engine.thread_analytics.get('summary', {})
-            overview = analytics.get('overview', {})
-            activity = analytics.get('activity', {})
+            analytics = self.search_engine.thread_analytics
+            metadata = analytics.get('metadata', {})
+            participants = analytics.get('participants', {})
+            topics = analytics.get('topics', {})
             
-            if overview:
+            if metadata:
                 thread_context = (
                     f"\nTHREAD OVERVIEW:\n"
-                    f"Total Posts: {overview.get('total_posts', 'Unknown')}\n"
-                    f"Participants: {overview.get('participants', 'Unknown')}\n"
-                    f"Pages: {overview.get('pages', 'Unknown')}\n"
+                    f"Total Posts: {metadata.get('total_posts', 'Unknown')}\n"
+                    f"Participants: {participants.get('total_participants', 'Unknown')}\n"
+                    f"Pages: {metadata.get('total_pages', 'Unknown')}\n"
                 )
                 
                 # Add thread creator if available (highest priority for authorship questions)
-                if hasattr(self.search_engine, 'thread_analytics') and self.search_engine.thread_analytics:
-                    metadata = self.search_engine.thread_analytics.get('metadata', {})
-                    thread_creator = metadata.get('thread_creator')
-                    if thread_creator:
-                        creator_name = thread_creator.get('username', 'Unknown')
-                        thread_context += f"Thread Creator: {creator_name} (extracted from URL)\n"
+                thread_creator = metadata.get('thread_creator')
+                if thread_creator:
+                    creator_name = thread_creator.get('username', 'Unknown')
+                    thread_context += f"Thread Creator: {creator_name} (extracted from URL)\n"
                 
-                # Add most active contributor
-                most_active = activity.get('most_active_author', {})
-                if most_active.get('name'):
-                    thread_context += f"Most Active: {most_active['name']} ({most_active.get('post_count', 0)} posts)\n"
+                # Add most active contributor from participants data
+                authors = participants.get('authors', {})
+                if authors:
+                    # Find most active author by post count
+                    most_active_author = max(authors.items(), key=lambda x: x[1].get('post_count', 0))
+                    author_name, author_data = most_active_author
+                    post_count = author_data.get('post_count', 0)
+                    if post_count > 0:
+                        thread_context += f"Most Active: {author_name} ({post_count} posts)\n"
                 
                 # Add key topics  
-                content_insights = analytics.get('content_insights', {})
-                keywords = content_insights.get('primary_keywords', [])
+                keywords = topics.get('primary_keywords', [])
                 if keywords:
                     thread_context += f"Main Topics: {', '.join(keywords[:5])}\n"
                 
                 # Add search coverage info
-                total_posts = overview.get('total_posts', 0)
+                total_posts = metadata.get('total_posts', 0)
                 if total_posts > 0:
                     coverage_pct = (len(search_results) / total_posts) * 100
                     thread_context += f"Search Coverage: {len(search_results)}/{total_posts} posts ({coverage_pct:.1f}%)\n"
@@ -697,12 +700,13 @@ class QueryProcessor:
             analytics_file = f"{self.thread_dir}/thread_analytics.json"
             analytics = safe_read_json(analytics_file)
             
-            if analytics and 'summary' in analytics:
-                overview = analytics['summary'].get('overview', {})
+            if analytics and 'metadata' in analytics:
+                metadata = analytics['metadata']
+                participants = analytics.get('participants', {})
                 return {
-                    'total_posts': overview.get('total_posts', posts_count),
-                    'participants': overview.get('participants', 'unknown'),
-                    'pages': overview.get('pages', 'unknown')
+                    'total_posts': metadata.get('total_posts', posts_count),
+                    'participants': participants.get('total_participants', 'unknown'),
+                    'pages': metadata.get('total_pages', 'unknown')
                 }
             else:
                 return {

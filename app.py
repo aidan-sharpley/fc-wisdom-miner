@@ -235,17 +235,20 @@ def process_new_thread(
     # Show analytics preview if available
     analytics_summary = processing_results.get('analytics_summary', {})
     if analytics_summary:
-        overview = analytics_summary.get('overview', {})
-        activity = analytics_summary.get('activity', {})
+        metadata = analytics_summary.get('metadata', {})
+        participants = analytics_summary.get('participants', {})
 
-        message_queue.put(f'Participants: {overview.get("participants", "Unknown")}\n')
-        message_queue.put(f'Pages: {overview.get("pages", "Unknown")}\n')
+        message_queue.put(f'Participants: {participants.get("total_participants", "Unknown")}\n')
+        message_queue.put(f'Pages: {metadata.get("total_pages", "Unknown")}\n')
 
-        most_active = activity.get('most_active_author', {})
-        if most_active.get('name'):
-            message_queue.put(
-                f'Most active: {most_active["name"]} ({most_active.get("post_count", 0)} posts)\n'
-            )
+        # Find most active author from participants data
+        authors = participants.get('authors', {})
+        if authors:
+            most_active_author = max(authors.items(), key=lambda x: x[1].get('post_count', 0))
+            author_name, author_data = most_active_author
+            post_count = author_data.get('post_count', 0)
+            if post_count > 0:
+                message_queue.put(f'Most active: {author_name} ({post_count} posts)\n')
 
     message_queue.put('\n' + '=' * 50 + '\n\n')
 
@@ -418,21 +421,24 @@ def ask():
                             'analytics_summary', {}
                         )
                         if analytics_summary:
-                            overview = analytics_summary.get('overview', {})
-                            activity = analytics_summary.get('activity', {})
+                            metadata = analytics_summary.get('metadata', {})
+                            participants = analytics_summary.get('participants', {})
 
                             message_queue.put(
-                                f'Participants: {overview.get("participants", "Unknown")}\n'
+                                f'Participants: {participants.get("total_participants", "Unknown")}\n'
                             )
                             message_queue.put(
-                                f'Pages: {overview.get("pages", "Unknown")}\n'
+                                f'Pages: {metadata.get("total_pages", "Unknown")}\n'
                             )
 
-                            most_active = activity.get('most_active_author', {})
-                            if most_active.get('name'):
-                                message_queue.put(
-                                    f'Most active: {most_active["name"]} ({most_active.get("post_count", 0)} posts)\n'
-                                )
+                            # Find most active author from participants data
+                            authors = participants.get('authors', {})
+                            if authors:
+                                most_active_author = max(authors.items(), key=lambda x: x[1].get('post_count', 0))
+                                author_name, author_data = most_active_author
+                                post_count = author_data.get('post_count', 0)
+                                if post_count > 0:
+                                    message_queue.put(f'Most active: {author_name} ({post_count} posts)\n')
 
                         message_queue.put('\n' + '=' * 50 + '\n\n')
 
