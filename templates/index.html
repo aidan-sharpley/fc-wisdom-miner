@@ -618,6 +618,184 @@
         align-items: stretch;
       }
     }
+
+    /* Chat Interface Styles */
+    .chat-history {
+      max-height: 60vh;
+      overflow-y: auto;
+      margin-bottom: 1.5em;
+      padding: 1em;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #dee2e6;
+    }
+
+    .chat-message {
+      margin-bottom: 1.5em;
+      padding: 1em;
+      border-radius: 8px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      line-height: 1.6;
+    }
+
+    .chat-message.user {
+      background: var(--primary-color);
+      color: white;
+      margin-left: 10%;
+      border-bottom-right-radius: 4px;
+    }
+
+    .chat-message.assistant {
+      background: white;
+      border: 1px solid #dee2e6;
+      margin-right: 10%;
+      border-bottom-left-radius: 4px;
+    }
+
+    .chat-message .message-header {
+      font-size: 0.85em;
+      opacity: 0.8;
+      margin-bottom: 0.5em;
+      font-weight: 600;
+    }
+
+    .chat-message .message-content {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      white-space: pre-wrap;
+    }
+
+    .chat-message.assistant .message-content {
+      line-height: 1.6;
+    }
+
+    .chat-message.assistant .message-content h1,
+    .chat-message.assistant .message-content h2,
+    .chat-message.assistant .message-content h3,
+    .chat-message.assistant .message-content h4,
+    .chat-message.assistant .message-content h5,
+    .chat-message.assistant .message-content h6 {
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+
+    .chat-message.assistant .message-content p {
+      margin-bottom: 1em;
+    }
+
+    .chat-message.assistant .message-content ul,
+    .chat-message.assistant .message-content ol {
+      margin-bottom: 1em;
+      padding-left: 1.5em;
+    }
+
+    .chat-message.assistant .message-content li {
+      margin-bottom: 0.25em;
+    }
+
+    .chat-message.assistant .message-content a {
+      color: var(--primary-color);
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
+    .chat-message.assistant .message-content code {
+      background: #f1f3f4;
+      padding: 0.2em 0.4em;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.9em;
+      word-break: break-all;
+    }
+
+    .chat-message.assistant .message-content pre {
+      background: #f1f3f4;
+      padding: 1em;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 1em 0;
+    }
+
+    .chat-message.assistant .message-content pre code {
+      background: none;
+      padding: 0;
+    }
+
+    .chat-input-form {
+      margin: 0;
+    }
+
+    .chat-input-container {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .chat-input-container textarea {
+      flex: 1;
+      min-height: 44px;
+      max-height: 120px;
+      resize: vertical;
+      margin: 0;
+    }
+
+    .chat-send-btn {
+      margin: 0;
+      padding: 12px 20px;
+      white-space: nowrap;
+      height: fit-content;
+    }
+
+    .chat-empty-state {
+      text-align: center;
+      color: #6c757d;
+      font-style: italic;
+      padding: 2em;
+      border: 2px dashed #dee2e6;
+      border-radius: 8px;
+      background: #fdfdfd;
+    }
+
+    .chat-loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 1em;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-bottom: 1em;
+      color: #6c757d;
+    }
+
+    .chat-loading .spinner {
+      border-color: #6c757d;
+      border-top-color: transparent;
+    }
+
+    /* Responsive chat styles */
+    @media (max-width: 768px) {
+      .chat-message.user {
+        margin-left: 5%;
+      }
+      
+      .chat-message.assistant {
+        margin-right: 5%;
+      }
+
+      .chat-input-container {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .chat-send-btn {
+        width: 100%;
+      }
+
+      .chat-history {
+        max-height: 50vh;
+      }
+    }
   </style>
 </head>
 
@@ -700,8 +878,8 @@
     </div>
   </div>
 
-  <!-- Main Form -->
-  <form id="ask-form" class="main-form">
+  <!-- Thread Selection Form (Initial Setup) -->
+  <div id="thread-setup-section" class="main-form">
     <div class="form-section">
       <div class="section-title">
         <span>📋</span>
@@ -719,18 +897,39 @@
         <button type="button" id="delete-thread-btn" class="btn btn-danger btn-small" disabled>Delete</button>
       </div>
 
-      <div id="url-section">
+      <div id="url-section" class="hidden">
         <label for="url">Or enter new thread URL:</label>
         <input type="text" id="url" name="url" placeholder="https://example.com/thread/12345" />
       </div>
-    </div>
 
+      <div id="reprocess-section" class="checkbox-container hidden">
+        <input type="checkbox" id="reprocess" name="reprocess" />
+        <label for="reprocess">Reprocess thread (re-parse HTML with latest optimizations)</label>
+      </div>
+
+      <button type="button" id="load-thread-btn" class="btn" disabled>
+        <span>🔗</span>
+        Load Thread
+      </button>
+    </div>
+  </div>
+
+  <!-- Chat Interface (Hidden initially) -->
+  <div id="chat-interface" class="main-form hidden">
     <div class="form-section">
       <div class="section-title">
         <span>💬</span>
-        Your Question
+        <span id="current-thread-name">Thread Chat</span>
+        <button type="button" id="change-thread-btn" class="btn btn-secondary btn-small" style="margin-left: auto;">
+          Change Thread
+        </button>
       </div>
-      
+
+      <!-- Chat History -->
+      <div id="chat-history" class="chat-history">
+        <!-- Chat messages will be populated here -->
+      </div>
+
       <!-- Recent Questions Section -->
       <div id="recent-questions-section" class="hidden" style="margin-bottom: 1em;">
         <label style="margin-bottom: 0.5em; display: flex; align-items: center; gap: 8px;">
@@ -741,22 +940,20 @@
           <!-- Question buttons will be populated here -->
         </div>
       </div>
-      
-      <label for="prompt">Ask about this thread:</label>
-      <textarea id="prompt" name="prompt" rows="3" required
-        placeholder="Ask anything about the thread... e.g., 'What are the main opinions?', 'Who is most active?', 'Summarize the discussion'"></textarea>
-      
-      <div id="reprocess-section" class="checkbox-container hidden">
-        <input type="checkbox" id="reprocess" name="reprocess" />
-        <label for="reprocess">Reprocess thread (re-parse HTML with latest optimizations)</label>
-      </div>
-    </div>
 
-    <button type="submit" class="btn">
-      <span>🔍</span>
-      Analyze Thread
-    </button>
-  </form>
+      <!-- Chat Input Form -->
+      <form id="ask-form" class="chat-input-form">
+        <div class="chat-input-container">
+          <textarea id="prompt" name="prompt" rows="2" required
+            placeholder="Ask about this thread... e.g., 'What are the main opinions?', 'Who is most active?', 'Summarize the discussion'"></textarea>
+          <button type="submit" class="btn chat-send-btn">
+            <span>🔍</span>
+            Ask
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Thread Summary and Analytics Section -->
   <div id="summary-section" class="analytics-section hidden">
@@ -803,13 +1000,7 @@
     <div class="analytics-header">
       <span>📊 Visual Analytics</span>
       <div class="analytics-controls">
-        <select id="thread-analytics-select" class="analytics-select">
-          <option value="">Select thread for analytics...</option>
-          {% for thread in threads %}
-          <option value="{{ thread }}">{{ thread }}</option>
-          {% endfor %}
-        </select>
-        <button type="button" id="load-analytics-btn" class="analytics-button" disabled>Load Analytics</button>
+        <span id="analytics-thread-name" style="font-weight: normal; opacity: 0.8;">No thread selected</span>
         <button type="button" id="hide-analytics-btn" class="analytics-button">Hide</button>
       </div>
     </div>
@@ -838,7 +1029,7 @@
     </div>
   </div>
 
-  <!-- Response Panel -->
+  <!-- Legacy Response Panel (Hidden) -->
   <div id="response-panel" class="response-panel hidden">
     <div class="response-header">
       <span>Analysis Results</span>
@@ -848,13 +1039,21 @@
   </div>
 
   <script>
-    // Enhanced UI Elements
+    // ==================== Chat Interface Implementation ====================
+    
+    // Core UI Elements
+    const threadSetupSection = document.getElementById("thread-setup-section");
+    const chatInterface = document.getElementById("chat-interface");
+    const chatHistory = document.getElementById("chat-history");
+    const currentThreadName = document.getElementById("current-thread-name");
+    const changeThreadBtn = document.getElementById("change-thread-btn");
+    const loadThreadBtn = document.getElementById("load-thread-btn");
+    
+    // Form elements
     const form = document.getElementById("ask-form");
-    const responseEl = document.getElementById("response");
-    const responsePanel = document.getElementById("response-panel");
+    const threadSelect = document.getElementById("thread-select");
     const urlInput = document.getElementById("url");
     const urlSection = document.getElementById("url-section");
-    const threadSelect = document.getElementById("thread-select");
     const deleteBtn = document.getElementById("delete-thread-btn");
     const promptInput = document.getElementById("prompt");
     const reprocessSection = document.getElementById("reprocess-section");
@@ -863,9 +1062,9 @@
     const recentQuestionsSection = document.getElementById("recent-questions-section");
     const recentQuestionsContainer = document.getElementById("recent-questions-container");
     
-    // Global thread state management
-    let currentSelectedThread = null;
-    let availableThreads = [];
+    // Legacy elements (still needed for analytics)
+    const responseEl = document.getElementById("response");
+    const responsePanel = document.getElementById("response-panel");
     
     // Status Panel Elements
     const statusPanel = document.getElementById("status-panel");
@@ -884,8 +1083,6 @@
     
     // Visual Analytics Elements
     const analyticsSection = document.getElementById("analytics-section");
-    const threadAnalyticsSelect = document.getElementById("thread-analytics-select");
-    const loadAnalyticsBtn = document.getElementById("load-analytics-btn");
     const hideAnalyticsBtn = document.getElementById("hide-analytics-btn");
     const analyticsLoading = document.getElementById("analytics-loading");
     const analyticsNoData = document.getElementById("analytics-no-data");
@@ -916,27 +1113,169 @@
     let currentStep = 0;
     const steps = ['fetch', 'analyze', 'embed', 'search', 'respond'];
 
+    // Global state
+    let currentSelectedThread = null;
+    let availableThreads = [];
+    let chatMessages = []; // Store chat history
+
+    // ==================== Chat Interface Functions ====================
+    
+    // Auto-fetch functionality with localStorage
+    function saveCurrentThread(threadKey) {
+      if (threadKey) {
+        localStorage.setItem('forum-analyst-current-thread', threadKey);
+      } else {
+        localStorage.removeItem('forum-analyst-current-thread');
+      }
+    }
+
+    function loadSavedThread() {
+      return localStorage.getItem('forum-analyst-current-thread');
+    }
+
+    function saveChatHistory(threadKey, messages) {
+      if (threadKey && messages) {
+        localStorage.setItem(`forum-analyst-chat-${threadKey}`, JSON.stringify(messages));
+      }
+    }
+
+    function loadChatHistory(threadKey) {
+      if (!threadKey) return [];
+      const saved = localStorage.getItem(`forum-analyst-chat-${threadKey}`);
+      return saved ? JSON.parse(saved) : [];
+    }
+
+    // Chat interface management
+    function showThreadSetup() {
+      threadSetupSection.classList.remove('hidden');
+      chatInterface.classList.add('hidden');
+      currentSelectedThread = null;
+      saveCurrentThread(null);
+    }
+
+    function showChatInterface(threadKey) {
+      threadSetupSection.classList.add('hidden');
+      chatInterface.classList.remove('hidden');
+      currentSelectedThread = threadKey;
+      currentThreadName.textContent = threadKey;
+      saveCurrentThread(threadKey);
+      
+      // Load and display chat history
+      chatMessages = loadChatHistory(threadKey);
+      renderChatHistory();
+      
+      // Load question history
+      loadQuestionHistory(threadKey);
+      
+      // Update analytics dropdowns
+      updateAllThreadSelections(threadKey);
+      loadThreadSummary(threadKey);
+      
+      // Auto-show and load visual analytics
+      showAnalyticsSection();
+      loadThreadAnalytics(threadKey);
+    }
+
+    function addChatMessage(type, content, isStreaming = false) {
+      const message = {
+        type: type, // 'user' or 'assistant'
+        content: content,
+        timestamp: new Date().toISOString(),
+        isStreaming: isStreaming
+      };
+
+      if (isStreaming) {
+        // Update existing streaming message or add new one
+        const existingStreamingIndex = chatMessages.findIndex(m => m.isStreaming);
+        if (existingStreamingIndex >= 0) {
+          chatMessages[existingStreamingIndex].content = content;
+        } else {
+          chatMessages.push(message);
+        }
+      } else {
+        // Mark any existing streaming message as complete
+        chatMessages.forEach(m => m.isStreaming = false);
+        chatMessages.push(message);
+      }
+
+      renderChatHistory();
+      if (currentSelectedThread && !isStreaming) {
+        saveChatHistory(currentSelectedThread, chatMessages);
+      }
+    }
+
+    function renderChatHistory() {
+      if (chatMessages.length === 0) {
+        chatHistory.innerHTML = `
+          <div class="chat-empty-state">
+            <h3>👋 Welcome to Thread Chat</h3>
+            <p>Start by asking questions about this forum thread. The AI will analyze the content and provide insights, summaries, and specific answers.</p>
+            <p><strong>Try asking:</strong></p>
+            <ul style="text-align: left; display: inline-block;">
+              <li>"What are the main opinions?"</li>
+              <li>"Who is most active?"</li>
+              <li>"Summarize the key points"</li>
+              <li>"What solutions were discussed?"</li>
+            </ul>
+          </div>
+        `;
+        return;
+      }
+
+      const messagesHtml = chatMessages.map(message => {
+        const timeString = new Date(message.timestamp).toLocaleTimeString();
+        const isUser = message.type === 'user';
+        const messageClass = isUser ? 'user' : 'assistant';
+        const senderName = isUser ? 'You' : 'AI Assistant';
+        
+        let contentHtml;
+        if (isUser) {
+          contentHtml = escapeHtml(message.content);
+        } else {
+          // For assistant messages, render markdown
+          contentHtml = message.content;
+          if (typeof marked !== 'undefined') {
+            contentHtml = marked.parse(message.content);
+          }
+        }
+
+        return `
+          <div class="chat-message ${messageClass}">
+            <div class="message-header">
+              ${senderName} • ${timeString}
+              ${message.isStreaming ? ' • <span style="color: #28a745;">responding...</span>' : ''}
+            </div>
+            <div class="message-content">${contentHtml}</div>
+          </div>
+        `;
+      }).join('');
+
+      chatHistory.innerHTML = messagesHtml;
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     // Question History Functions
     async function loadQuestionHistory(threadKey) {
-      console.log('loadQuestionHistory called with threadKey:', threadKey);
       if (!threadKey) {
-        console.log('No threadKey provided, hiding question history');
         hideQuestionHistory();
         return;
       }
       
       try {
-        console.log('Fetching question history for thread:', threadKey);
         const response = await fetch(`/thread/${encodeURIComponent(threadKey)}/questions`);
         
         if (!response.ok) {
-          console.log('Response not OK:', response.status, response.statusText);
           hideQuestionHistory();
           return;
         }
         
         const data = await response.json();
-        console.log('Question history data received:', data);
         displayQuestionHistory(data.questions || []);
         
       } catch (error) {
@@ -946,16 +1285,13 @@
     }
     
     function displayQuestionHistory(questions) {
-      console.log('displayQuestionHistory called with questions:', questions);
       if (!questions || questions.length === 0) {
-        console.log('No questions to display, hiding question history');
         hideQuestionHistory();
         return;
       }
       
       // Clear existing buttons
       recentQuestionsContainer.innerHTML = '';
-      console.log('Creating buttons for', questions.length, 'questions');
       
       // Create buttons for each recent question
       questions.forEach(question => {
@@ -968,15 +1304,12 @@
         button.addEventListener('click', () => {
           promptInput.value = question;
           promptInput.focus();
-          // Smooth scroll to textarea
-          promptInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
         
         recentQuestionsContainer.appendChild(button);
       });
       
       // Show the section
-      console.log('Showing question history section');
       recentQuestionsSection.classList.remove('hidden');
     }
     
@@ -985,38 +1318,35 @@
       recentQuestionsContainer.innerHTML = '';
     }
 
-    // Unified Thread Management Functions
+    // ==================== Thread Management Functions ====================
+    
     function updateAllThreadSelections(selectedThread = null) {
-      // Update main thread selection
-      threadSelect.value = selectedThread || '';
-      
-      // Update analytics thread selection
-      threadAnalyticsSelect.value = selectedThread || '';
-      
-      // Update current state
-      currentSelectedThread = selectedThread;
-      
       // Update button states
       deleteBtn.disabled = !selectedThread;
-      loadAnalyticsBtn.disabled = !selectedThread;
+      loadThreadBtn.disabled = !selectedThread;
       
-      // Load question history for selected thread
-      loadQuestionHistory(selectedThread);
-      
-      // Update UI visibility
+      // Update UI visibility in setup section
       if (selectedThread) {
-        urlSection.classList.add('hidden');
         reprocessSection.classList.remove('hidden');
-        showStatusMessage(`Thread '${selectedThread}' selected across all sections.`, 'success');
+        urlSection.classList.add('hidden'); // Hide URL input when thread is selected
+        loadThreadBtn.innerHTML = '<span>🔗</span> Load Thread';
       } else {
-        urlSection.classList.remove('hidden');
         reprocessSection.classList.add('hidden');
-        hideStatusMessage();
-        
-        // Reset analytics and summary sections
-        showAnalyticsNoData();
-        showSummaryNoData();
-        destroyCharts();
+        urlSection.classList.remove('hidden'); // Show URL input when no thread selected
+        loadThreadBtn.innerHTML = '<span>🔗</span> Process New Thread';
+      }
+    }
+
+    function updateLoadButtonState() {
+      const hasThread = threadSelect.value.trim();
+      const hasUrl = urlInput.value.trim();
+      loadThreadBtn.disabled = !hasThread && !hasUrl;
+      
+      // Update button text based on what's selected
+      if (hasThread) {
+        loadThreadBtn.innerHTML = '<span>🔗</span> Load Thread';
+      } else {
+        loadThreadBtn.innerHTML = '<span>🔗</span> Process New Thread';
       }
     }
 
@@ -1031,9 +1361,8 @@
       option.value = threadKey;
       option.textContent = threadKey;
       
-      // Add to all select elements
+      // Add to thread select element
       threadSelect.appendChild(option.cloneNode(true));
-      threadAnalyticsSelect.appendChild(option.cloneNode(true));
     }
 
     function removeThreadFromAllSelections(threadKey) {
@@ -1042,61 +1371,207 @@
       // Remove from available threads list
       availableThreads = availableThreads.filter(t => t !== threadKey);
       
-      // Remove from all select elements
-      [threadSelect, threadAnalyticsSelect].forEach(select => {
-        const option = select.querySelector(`option[value="${threadKey}"]`);
-        if (option) option.remove();
-      });
+      // Remove from thread select element
+      const option = threadSelect.querySelector(`option[value="${threadKey}"]`);
+      if (option) option.remove();
       
-      // If this was the selected thread, clear selection
+      // If this was the selected thread, go back to setup
       if (currentSelectedThread === threadKey) {
+        showThreadSetup();
+      }
+    }
+
+    // ==================== Event Handlers ====================
+    
+    // Thread selection in setup
+    threadSelect.addEventListener("change", () => {
+      const selected = threadSelect.value;
+      updateAllThreadSelections(selected);
+      updateLoadButtonState();
+    });
+
+    // URL input in setup
+    urlInput.addEventListener("input", () => {
+      if (urlInput.value.trim() !== "") {
+        // URL entered - clear thread selection
+        threadSelect.value = '';
         updateAllThreadSelections(null);
       }
-    }
+      updateLoadButtonState();
+    });
 
-    async function refreshThreadLists() {
-      try {
-        const response = await fetch('/threads');
-        const data = await response.json();
-        
-        // Clear all selections
-        [threadSelect, threadAnalyticsSelect].forEach(select => {
-          // Keep the default option, remove others
-          const options = select.querySelectorAll('option:not([value=""])');
-          options.forEach(option => option.remove());
-        });
-        
-        // Extract thread keys from thread summaries
-        const threads = data.threads || [];
-        availableThreads = threads.map(thread => thread.thread_key);
-        
-        // Add threads to all selections
-        availableThreads.forEach(threadKey => {
-          const option = document.createElement('option');
-          option.value = threadKey;
-          option.textContent = threadKey;
-          
-          threadSelect.appendChild(option.cloneNode(true));
-          threadAnalyticsSelect.appendChild(option.cloneNode(true));
-        });
-        
-      } catch (error) {
-        console.error('Error refreshing thread lists:', error);
+    // Load thread button
+    loadThreadBtn.addEventListener("click", async () => {
+      const selectedThread = threadSelect.value.trim();
+      const url = urlInput.value.trim();
+      
+      if (selectedThread) {
+        // Load existing thread
+        showChatInterface(selectedThread);
+      } else if (url) {
+        alert("New URL processing is not available. Threads can only be reprocessed once created.");
       }
-    }
+    });
 
-    function selectNewThread(threadKey) {
-      // Add the thread if it doesn't exist
-      addThreadToAllSelections(threadKey);
-      
-      // Select it across all sections
-      updateAllThreadSelections(threadKey);
-      
-      // Clear URL input since we're now using an existing thread
-      urlInput.value = '';
-    }
+    // Change thread button
+    changeThreadBtn.addEventListener("click", () => {
+      showThreadSetup();
+    });
 
-    // Enhanced UI Functions
+    // Delete thread button
+    deleteBtn.addEventListener("click", async () => {
+      const thread_key = threadSelect.value.trim();
+      if (!thread_key) return;
+
+      if (!confirm(`Are you sure you want to delete the thread '${thread_key}'? This cannot be undone.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch("/delete_thread", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ thread_key }),
+        });
+
+        const resultText = await res.text();
+        if (!res.ok) {
+          alert(`Error: ${resultText}`);
+        } else {
+          alert("Thread deleted successfully!");
+          removeThreadFromAllSelections(thread_key);
+          
+          // Clear chat history from localStorage
+          localStorage.removeItem(`forum-analyst-chat-${thread_key}`);
+        }
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    });
+
+    // ==================== Chat Form Submission ====================
+    
+    // Enhanced form submission handler for chat interface
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const prompt = promptInput.value.trim();
+      if (!prompt || !currentSelectedThread) {
+        alert("Please enter a question.");
+        return;
+      }
+
+      // Add user message to chat
+      addChatMessage('user', prompt);
+      
+      // Clear input and disable form
+      promptInput.value = '';
+      const submitBtn = form.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+
+      // Show status panel for processing feedback
+      showStatusPanel();
+      let currentResponseContent = '';
+
+      try {
+        // Build the payload for existing thread
+        const payload = { 
+          prompt, 
+          existing_thread: currentSelectedThread,
+          reprocess: false
+        };
+
+        updateProgress(0, "Processing your question...");
+
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          addChatMessage('assistant', `❌ Error: ${errorText}`);
+          return;
+        }
+
+        // Initialize streaming response
+        addChatMessage('assistant', '', true);
+        updateProgress(1, "Analyzing content...");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let receivedText = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          
+          // Check for progress messages
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('PROGRESS: ')) {
+              const progressMessage = line.substring(10);
+              
+              if (progressMessage.includes('Generating embeddings:')) {
+                updateProgress(2, "Generating embeddings...");
+                const match = progressMessage.match(/(\d+)\/(\d+) \((\d+\.?\d*)%\)/);
+                if (match) {
+                  const [, current, total, percent] = match;
+                  progressText.textContent = `Generating embeddings: ${current}/${total} (${percent}%)`;
+                }
+              } else if (progressMessage.includes('Building search index:')) {
+                updateProgress(3, "Building search index...");
+                const match = progressMessage.match(/(\d+)\/(\d+) \((\d+\.?\d*)%\)/);
+                if (match) {
+                  const [, current, total, percent] = match;
+                  progressText.textContent = `Building search index: ${current}/${total} (${percent}%)`;
+                }
+              } else {
+                progressText.textContent = progressMessage;
+              }
+              continue;
+            }
+            
+            // Regular content line
+            if (line.trim()) {
+              receivedText += line + '\n';
+              currentResponseContent = receivedText;
+              
+              // Update the streaming message
+              addChatMessage('assistant', currentResponseContent, true);
+            }
+          }
+
+          // Update progress based on content
+          if (receivedText.includes("Analyzing query and searching thread")) {
+            updateProgress(4, "Generating response...");
+          }
+        }
+
+        // Complete the streaming message
+        addChatMessage('assistant', currentResponseContent, false);
+        
+        // Complete progress
+        updateProgress(4, "Analysis complete!");
+        
+        // Refresh question history
+        setTimeout(() => {
+          loadQuestionHistory(currentSelectedThread);
+        }, 500);
+
+      } catch (err) {
+        addChatMessage('assistant', `❌ Error: ${err.message}`);
+      } finally {
+        submitBtn.disabled = false;
+        hideStatusPanel();
+      }
+    });
+
+    // ==================== Utility Functions ====================
+    
     function showStatusPanel() {
       statusPanel.classList.remove('hidden');
       statusSpinner.classList.remove('hidden');
@@ -1155,29 +1630,6 @@
       } else {
         analyticsPreview.classList.add('hidden');
       }
-    }
-
-    function showResponsePanel() {
-      responsePanel.classList.remove('hidden');
-    }
-
-    function hideResponsePanel() {
-      responsePanel.classList.add('hidden');
-      responseEl.textContent = '';
-    }
-
-    // Enhanced reset function
-    function resetUI() {
-      urlInput.value = "";
-      promptInput.value = "";
-      
-      // Reset thread selections across all sections
-      updateAllThreadSelections(null);
-      
-      hideStatusPanel();
-      hideResponsePanel();
-      hideStatusMessage();
-      updateAnalyticsPreview(null);
     }
 
     // Visual Analytics Functions
@@ -1376,7 +1828,12 @@
       if (!threadKey) return;
 
       showAnalyticsLoading();
-      loadAnalyticsBtn.disabled = true;
+      
+      // Update analytics header to show current thread
+      const analyticsThreadName = document.getElementById('analytics-thread-name');
+      if (analyticsThreadName) {
+        analyticsThreadName.textContent = `Thread: ${threadKey}`;
+      }
 
       try {
         const response = await fetch(`/thread/${encodeURIComponent(threadKey)}/analytics`);
@@ -1408,8 +1865,6 @@
             <small>Make sure the thread has been processed and analytics are available.</small>
           </div>
         `;
-      } finally {
-        loadAnalyticsBtn.disabled = false;
       }
     }
 
@@ -1618,14 +2073,6 @@
     });
 
     // Analytics event handlers
-    threadAnalyticsSelect.addEventListener("change", () => handleThreadSelectionChange(threadAnalyticsSelect));
-
-    loadAnalyticsBtn.addEventListener("click", () => {
-      if (currentSelectedThread) {
-        loadThreadAnalytics(currentSelectedThread);
-      }
-    });
-
     hideAnalyticsBtn.addEventListener("click", () => {
       hideAnalyticsSection();
       destroyCharts();
@@ -1839,22 +2286,42 @@
         .catch(error => console.error('Direct API call error:', error));
     };
 
-    // Initialize UI
-    resetUI();
+    // ==================== Initialization ====================
     
-    // Initialize available threads from server-rendered content
-    document.addEventListener('DOMContentLoaded', () => {
+    // Initialize the application with auto-fetch functionality
+    function initializeApp() {
       // Extract available threads from the dropdowns
       const options = threadSelect.querySelectorAll('option:not([value=""])');
       availableThreads = Array.from(options).map(option => option.value);
       
-      console.log('Page loaded. Available threads:', availableThreads);
-      console.log('DOM elements found:');
-      console.log('- threadSelect:', threadSelect);
-      console.log('- recentQuestionsSection:', recentQuestionsSection);
-      console.log('- recentQuestionsContainer:', recentQuestionsContainer);
-      console.log('You can run testQuestionHistory() in console to test manually');
-    });
+      // Try to auto-load previously selected thread
+      const savedThread = loadSavedThread();
+      
+      if (savedThread && availableThreads.includes(savedThread)) {
+        // Auto-load the saved thread
+        console.log('Auto-loading saved thread:', savedThread);
+        threadSelect.value = savedThread;
+        updateAllThreadSelections(savedThread);
+        showChatInterface(savedThread);
+      } else {
+        // Show thread setup for first-time users or if saved thread no longer exists
+        showThreadSetup();
+        updateLoadButtonState();
+      }
+      
+      // Show both analytics sections by default
+      showSummarySection();
+      showAnalyticsSection();
+      
+      console.log('Forum Analyst AI Chat Interface initialized');
+      console.log('Available threads:', availableThreads);
+      if (savedThread) {
+        console.log('Saved thread found:', savedThread);
+      }
+    }
+
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', initializeApp);
   </script>
 </body>
 
