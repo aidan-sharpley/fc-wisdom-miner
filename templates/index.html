@@ -1529,13 +1529,13 @@
         const summaryData = await response.json();
         
         // Display narrative summary
-        if (summaryData.narrative_summary) {
-          displayThreadNarrative(summaryData.narrative_summary);
+        if (summaryData.narrative) {
+          displayThreadNarrative(summaryData.narrative);
         }
         
-        // Display analytics summary
-        if (summaryData.analytics_summary) {
-          displayAnalyticsSummary(summaryData.analytics_summary);
+        // Display analytics summary  
+        if (summaryData.analytics) {
+          displayAnalyticsSummary(summaryData.analytics);
         }
         
         showSummaryContent();
