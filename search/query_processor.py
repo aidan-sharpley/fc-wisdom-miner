@@ -18,6 +18,7 @@ from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
 from search.response_refiner import ResponseRefiner
 from search.keyword_search import KeywordSearchEngine, merge_search_results
+from search.verifiable_response_system import VerifiableResponseSystem
 from utils.file_utils import safe_read_json
 from utils.shared_data_manager import get_data_manager
 from utils.memory_optimizer import memory_efficient
@@ -43,6 +44,9 @@ class QueryProcessor:
         
         # Initialize keyword search with posts from semantic search engine
         self.keyword_search = KeywordSearchEngine(self.search_engine.posts)
+        
+        # Initialize verifiable response system
+        self.verifiable_response = VerifiableResponseSystem(self.search_engine.posts)
         
         # LLM configuration
         self.chat_url = f"{OLLAMA_BASE_URL}/api/chat"
@@ -97,20 +101,28 @@ class QueryProcessor:
                 
                 # Check if analytical processing found meaningful results
                 if 'error' not in analytical_result and self._has_meaningful_analytical_result(analytical_result):
-                    # Generate response from analytical data
+                    # Generate verifiable response with evidence
+                    verification_report = self.verifiable_response.generate_fact_check_report({
+                        'analytical_result': analytical_result,
+                        'query_type': 'analytical',
+                        'processing_time': time.time() - start_time
+                    })
+                    
                     if stream:
-                        response_generator = self._generate_analytical_response_stream(analytical_result)
+                        response_generator = self._generate_analytical_response_stream(analytical_result, verification_report)
                         return {
                             'query': query,
                             'analysis': query_analysis,
                             'analytical_result': analytical_result,
+                            'verification_report': verification_report,
                             'context_posts': analytical_result.get('thread_stats', {}).get('total_posts', 0),
                             'response_stream': response_generator,
                             'processing_time': time.time() - start_time,
-                            'query_type': 'analytical'
+                            'query_type': 'analytical',
+                            'fact_checked': True
                         }
                     else:
-                        response_text = self._generate_analytical_response_text(analytical_result)
+                        response_text = self._generate_analytical_response_text(analytical_result, verification_report)
                         processing_time = time.time() - start_time
                         
                         # Update statistics
@@ -124,9 +136,11 @@ class QueryProcessor:
                             'query': query,
                             'analysis': query_analysis,
                             'analytical_result': analytical_result,
+                            'verification_report': verification_report,
                             'response': response_text,
                             'processing_time': processing_time,
-                            'query_type': 'analytical'
+                            'query_type': 'analytical',
+                            'fact_checked': True
                         }
                 else:
                     # Analytical processing failed or found no relevant content
@@ -722,49 +736,51 @@ class QueryProcessor:
                 'pages': 'unknown'
             }
     
-    def _generate_analytical_response_stream(self, analytical_result: Dict):
-        """Generate streaming response from analytical results.
+    def _generate_analytical_response_stream(self, analytical_result: Dict, verification_report: Dict = None):
+        """Generate streaming response from analytical results with verification.
         
         Args:
             analytical_result: Results from analytical data processing
+            verification_report: Verification report with evidence
             
         Yields:
             Response chunks
         """
-        response_text = self._generate_analytical_response_text(analytical_result)
+        response_text = self._generate_analytical_response_text(analytical_result, verification_report)
         
         # For analytical responses, yield the complete formatted text at once
         # to avoid breaking markdown formatting during streaming
         yield response_text
     
-    def _generate_analytical_response_text(self, analytical_result: Dict) -> str:
-        """Generate response text from analytical results.
+    def _generate_analytical_response_text(self, analytical_result: Dict, verification_report: Dict = None) -> str:
+        """Generate response text from analytical results with verification.
         
         Args:
             analytical_result: Results from analytical data processing
+            verification_report: Verification report with evidence
             
         Returns:
-            Formatted response text
+            Formatted response text with citations
         """
         result_type = analytical_result.get('type', 'unknown')
         
         if result_type == 'participant_analysis':
-            return self._format_participant_analysis(analytical_result)
+            return self._format_participant_analysis(analytical_result, verification_report)
         elif result_type == 'content_statistics':
-            return self._format_content_statistics(analytical_result)
+            return self._format_content_statistics(analytical_result, verification_report)
         elif result_type == 'temporal_analysis':
-            return self._format_temporal_analysis(analytical_result)
+            return self._format_temporal_analysis(analytical_result, verification_report)
         elif result_type == 'positional_analysis':
-            return self._format_positional_analysis(analytical_result)
+            return self._format_positional_analysis(analytical_result, verification_report)
         elif result_type == 'engagement_analysis':
-            return self._format_engagement_analysis(analytical_result)
+            return self._format_engagement_analysis(analytical_result, verification_report)
         elif result_type == 'technical_specifications':
-            return self._format_technical_specifications(analytical_result)
+            return self._format_technical_specifications(analytical_result, verification_report)
         else:
             return f"Analysis complete. Result type: {result_type}"
     
-    def _format_participant_analysis(self, result: Dict) -> str:
-        """Format participant analysis results."""
+    def _format_participant_analysis(self, result: Dict, verification_report: Dict = None) -> str:
+        """Format participant analysis results with verification."""
         most_active = result.get('most_active_author', {})
         top_authors = result.get('top_authors', [])
         thread_stats = result.get('thread_stats', {})
@@ -810,9 +826,45 @@ class QueryProcessor:
             f"({thread_stats.get('total_posts', 0)} posts analyzed).*"
         )
         
+        # Add verification information if available
+        if verification_report:
+            response_parts.append(self._format_verification_section(verification_report))
+        
         return ''.join(response_parts)
     
-    def _format_content_statistics(self, result: Dict) -> str:
+    def _format_verification_section(self, verification_report: Dict) -> str:
+        """Format verification section for responses."""
+        if not verification_report or not verification_report.get('verifiable_claims'):
+            return ""
+        
+        verification_parts = ["\n\n## 📋 Verification & Evidence\n"]
+        
+        confidence = verification_report.get('confidence_assessment', 'medium')
+        confidence_emoji = {'high': '🟢', 'medium': '🟡', 'low': '🔴'}.get(confidence, '🟡')
+        
+        verification_parts.append(f"**Confidence Level**: {confidence_emoji} {confidence.title()}\n\n")
+        
+        # Add verifiable claims with evidence
+        for i, claim in enumerate(verification_report.get('verifiable_claims', []), 1):
+            evidence_list = claim.get('evidence', [])
+            if evidence_list:
+                verification_parts.append(f"**Evidence {i}**: {claim.get('verification_summary', '')}\n")
+                
+                # Show top 2 pieces of evidence
+                for evidence in evidence_list[:2]:
+                    citation = evidence.get('citation', '')
+                    quote = evidence.get('quote', '')
+                    
+                    if citation and quote:
+                        verification_parts.append(f"- {citation}: \"{quote[:100]}{'...' if len(quote) > 100 else ''}\"\n")
+                    elif citation:
+                        verification_parts.append(f"- {citation}\n")
+                
+                verification_parts.append("\n")
+        
+        return ''.join(verification_parts)
+    
+    def _format_content_statistics(self, result: Dict, verification_report: Dict = None) -> str:
         """Format content statistics results."""
         post_stats = result.get('post_statistics', {})
         page_dist = result.get('page_distribution', {})
@@ -842,9 +894,13 @@ class QueryProcessor:
                 f"({temporal.get('date_coverage_percentage', 0):.1f}%)\n"
             )
         
+        # Add verification information if available
+        if verification_report:
+            response_parts.append(self._format_verification_section(verification_report))
+        
         return ''.join(response_parts)
     
-    def _format_temporal_analysis(self, result: Dict) -> str:
+    def _format_temporal_analysis(self, result: Dict, verification_report: Dict = None) -> str:
         """Format temporal analysis results."""
         timeline = result.get('thread_timeline', {})
         activity = result.get('activity_pattern', {})
@@ -874,9 +930,13 @@ class QueryProcessor:
                     f"• **Average activity**: {avg_per_day:.1f} posts per day\n"
                 )
         
+        # Add verification information if available
+        if verification_report:
+            response_parts.append(self._format_verification_section(verification_report))
+        
         return ''.join(response_parts)
     
-    def _format_engagement_analysis(self, result: Dict) -> str:
+    def _format_engagement_analysis(self, result: Dict, verification_report: Dict = None) -> str:
         """Format engagement analysis results with smart query interpretation."""
         if 'error' in result:
             return f"**Analysis Error:**\n\n{result['error']}\n\nTotal posts analyzed: {result.get('total_posts_analyzed', 0)}"
@@ -943,9 +1003,13 @@ class QueryProcessor:
         response_parts.append(f"• **Posts with engagement**: {result.get('total_posts_with_engagement', 0)}\n")
         response_parts.append(f"• **Total posts analyzed**: {result.get('total_posts_analyzed', 0)}\n")
         
+        # Add verification information if available
+        if verification_report:
+            response_parts.append(self._format_verification_section(verification_report))
+        
         return ''.join(response_parts)
     
-    def _format_positional_analysis(self, result: Dict) -> str:
+    def _format_positional_analysis(self, result: Dict, verification_report: Dict = None) -> str:
         """Format positional analysis results."""
         if 'error' in result:
             return f"**Analysis Error:**\n\n{result['error']}\n\nTotal unique authors found: {result.get('total_unique_authors', 0)}"
@@ -988,9 +1052,13 @@ class QueryProcessor:
         if first_post_content:
             response_parts.append(f"\n**First post preview:**\n> {first_post_content}\n")
         
+        # Add verification information if available
+        if verification_report:
+            response_parts.append(self._format_verification_section(verification_report))
+        
         return ''.join(response_parts)
     
-    def _format_technical_specifications(self, result: Dict) -> str:
+    def _format_technical_specifications(self, result: Dict, verification_report: Dict = None) -> str:
         """Format technical specifications analysis results with clean structure."""
         if 'error' in result:
             return f"**Analysis Error:**\n\n{result['error']}\n\nTotal posts analyzed: {result.get('total_posts_analyzed', 0)}"
@@ -1051,6 +1119,10 @@ class QueryProcessor:
         response_parts.append(f"- Analyzed **{result.get('total_posts_analyzed', 0)} total posts**\n")
         
         response_parts.append("\n</details>")
+        
+        # Add verification information if available
+        if verification_report:
+            response_parts.append(self._format_verification_section(verification_report))
         
         return ''.join(response_parts)
     
