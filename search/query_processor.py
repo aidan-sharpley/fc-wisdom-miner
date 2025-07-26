@@ -18,7 +18,7 @@ from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
 from search.response_refiner import ResponseRefiner
 from search.keyword_search import KeywordSearchEngine, merge_search_results
-from search.verifiable_response_system import VerifiableResponseSystem
+# Lazy import for verifiable response system to speed up startup
 from utils.file_utils import safe_read_json
 from utils.shared_data_manager import get_data_manager
 from utils.memory_optimizer import memory_efficient
@@ -45,8 +45,8 @@ class QueryProcessor:
         # Initialize keyword search with posts from semantic search engine
         self.keyword_search = KeywordSearchEngine(self.search_engine.posts)
         
-        # Initialize verifiable response system
-        self.verifiable_response = VerifiableResponseSystem(self.search_engine.posts)
+        # Initialize verifiable response system lazily
+        self.verifiable_response = None
         
         # LLM configuration
         self.chat_url = f"{OLLAMA_BASE_URL}/api/chat"
@@ -102,7 +102,7 @@ class QueryProcessor:
                 # Check if analytical processing found meaningful results
                 if 'error' not in analytical_result and self._has_meaningful_analytical_result(analytical_result):
                     # Generate verifiable response with evidence
-                    verification_report = self.verifiable_response.generate_fact_check_report({
+                    verification_report = self._get_verification_report({
                         'analytical_result': analytical_result,
                         'query_type': 'analytical',
                         'processing_time': time.time() - start_time
@@ -1126,6 +1126,21 @@ class QueryProcessor:
         
         return ''.join(response_parts)
     
+    def _get_verification_report(self, response_data: Dict) -> Dict:
+        """Get verification report with lazy loading."""
+        if self.verifiable_response is None:
+            try:
+                from search.verifiable_response_system import VerifiableResponseSystem
+                self.verifiable_response = VerifiableResponseSystem(self.search_engine.posts)
+            except ImportError:
+                logger.warning("Verifiable response system not available")
+                return {'error': 'Verification system not available'}
+            except Exception as e:
+                logger.warning(f"Failed to initialize verification system: {e}")
+                return {'error': f'Verification system error: {e}'}
+        
+        return self.verifiable_response.generate_fact_check_report(response_data)
+
 # Old query detection methods removed - now using LLM-based routing
 
 

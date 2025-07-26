@@ -7,28 +7,34 @@ Designed to run efficiently on consumer hardware (8GB RAM), this Flask-based too
 - **Analytical questions** (e.g., "Who is the most active user?", "Who created this thread?") and
 - **Semantic questions** (e.g., "What are the best heating techniques?").
 
-The system provides data-driven answers for analytical queries and context-aware responses for semantic queries. **Thread narratives are automatically generated and displayed when threads are loaded**, providing immediate comprehensive insights. Results are generated automatically and users should verify important information.
+The system provides **verifiable, fact-checked answers** with clickable post evidence for analytical queries and context-aware responses for semantic queries. **Thread narratives with enhanced topic overviews are automatically generated** using semantic clustering, providing immediate comprehensive insights with supporting evidence. All claims are backed by specific post links for full traceability.
 
 ## ✨ Key Features
 
-- 📖 **Auto-Generated Thread Narratives**: Comprehensive thread summaries with conversation phases, key contributors, and topic evolution - displayed automatically when threads are loaded.
-- 🎯 **Dual-Engine Query System**: Provides analytical (data-driven) and semantic (LLM-based) query processing with automatic routing.
-- 👤 **Thread Author Identification**: Metadata-grounded thread creator detection using URL parsing with high accuracy.
-- 🔗 **Clickable Post Links**: Provides direct links to the specific source posts for all analytical results, ensuring full traceability.
-- 🧠 **Local LLM Powered**: Uses Ollama with deepseek-r1:1.5b and nomic-embed-text models for privacy and performance.
-- 🔄 **Smart Reprocessing**: Re-analyze existing threads without re-downloading using saved HTML.
-- 📊 **Advanced Analytics**: Thread summaries, participant analysis, and engagement metrics.
-- ⚡ **M1 Optimized**: Performance-optimized for M1 MacBook Air with 8GB RAM, aggressive caching, and memory-efficient processing.
-- 🛡️ **Security First**: Input validation, SSRF protection, and data sanitization.
-- 🌐 **Multi-Platform**: Supports XenForo, vBulletin, phpBB, and generic forums.
-- 🤝 **Respectful Scraping**: 1.5-3.5s delays with jitter, User-Agent rotation, exponential backoff.
-- 🚀 **Performance Monitoring**: Real-time analytics and bottleneck detection.
+- 📖 **Enhanced Thread Narratives**: Semantic clustering with comprehensive 1-2 sentence topic overviews, post ranges, and clickable links to topic starts
+- 🎯 **Dual-Engine Query System**: Provides analytical (data-driven) and semantic (LLM-based) query processing with automatic routing
+- ✅ **Verifiable Responses**: All claims backed by specific post evidence with clickable citations and confidence levels
+- 🔍 **Hybrid Search**: ElasticSearch integration with semantic search fallback for fast, ranked full-text search
+- 🔄 **Multi-Pass Analysis**: Cross-validated insights from topic, participant, engagement, and temporal analysis
+- 👤 **Thread Author Identification**: Metadata-grounded thread creator detection using URL parsing with high accuracy
+- 🔗 **Clickable Post Links**: Provides direct links to the specific source posts for all analytical results, ensuring full traceability
+- 🧠 **Local LLM Powered**: Uses Ollama with deepseek-r1:1.5b and nomic-embed-text models for privacy and performance
+- 🔄 **Smart Reprocessing**: Re-analyze existing threads without re-downloading using saved HTML
+- 📊 **Advanced Analytics**: Thread summaries, participant analysis, and engagement metrics
+- ⚡ **M1 Optimized**: Performance-optimized for M1 MacBook Air with 8GB RAM, aggressive caching, and memory-efficient processing
+- 🛡️ **Security First**: Input validation, SSRF protection, and data sanitization
+- 🌐 **Multi-Platform**: Supports XenForo, vBulletin, phpBB, and generic forums
+- 🤝 **Respectful Scraping**: 1.5-3.5s delays with jitter, User-Agent rotation, exponential backoff
+- 🚀 **Performance Monitoring**: Real-time analytics and bottleneck detection
 
 ## 🏗️ Architecture
 
 ### Core Components
 
-- **Thread Narrative Generator**: Optimized narrative generation with intelligent phase detection and aggressive caching
+- **Enhanced Thread Narrative Generator**: Semantic clustering with comprehensive topic overviews and verifiable claims
+- **Verifiable Response System**: Fact-checking with post evidence, citations, and confidence scoring
+- **Hybrid Search Engine**: ElasticSearch + semantic search with intelligent fallback
+- **Multi-Pass Fusion System**: Cross-validated insights from multiple analysis types
 - **Forum Scraper**: Respectful scraping with jitter, comprehensive page detection and HTML preservation
 - **Query Router**: LLM-powered intelligent query classification and routing (fully generic, no hardcoded terms)
 - **Data Analyzer**: Statistical analysis with post links and thread authorship detection
@@ -50,6 +56,12 @@ The system provides data-driven answers for analytical queries and context-aware
    ```bash
    pip install uv
    uv pip install Flask requests beautifulsoup4 hnswlib numpy tqdm
+   ```
+
+3. **Optional Enhanced Dependencies** (for advanced features):
+   ```bash
+   uv add scikit-learn          # For semantic clustering
+   uv add elasticsearch         # For hybrid search
    ```
 
 ### Running the Application

@@ -9,11 +9,21 @@ import logging
 import time
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Tuple, Set
-import numpy as np
 from datetime import datetime
 
-from embedding.embedding_manager import EmbeddingManager
-from utils.file_utils import safe_read_json
+# Lazy imports for performance
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+
+try:
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +31,7 @@ logger = logging.getLogger(__name__)
 class SemanticTopicCluster:
     """Represents a semantically coherent cluster of posts."""
     
-    def __init__(self, cluster_id: int, posts: List[Dict], centroid_embedding: np.ndarray):
+    def __init__(self, cluster_id: int, posts: List[Dict], centroid_embedding):
         self.cluster_id = cluster_id
         self.posts = posts
         self.centroid_embedding = centroid_embedding
@@ -83,10 +93,14 @@ class EnhancedTopicAnalyzer:
     
     def __init__(self, thread_dir: str):
         self.thread_dir = thread_dir
-        self.embedding_manager = EmbeddingManager()
         self.posts = []
         self.post_embeddings = []
         self.clusters = []
+        
+        # Note: sklearn is optional - will use fallback clustering if not available
+        
+        # Initialize embedding manager only when needed
+        self.embedding_manager = None
         
     def analyze_thread_topics(self, posts: List[Dict], force_refresh: bool = False) -> Dict:
         """Perform comprehensive topic analysis on thread posts.
@@ -142,9 +156,14 @@ class EnhancedTopicAnalyzer:
         logger.info(f"Enhanced topic analysis completed in {processing_time:.2f}s, found {len(topic_clusters)} semantic clusters")
         return result
     
-    def _get_post_embeddings(self) -> List[np.ndarray]:
+    def _get_post_embeddings(self) -> List:
         """Get or generate embeddings for all posts."""
         logger.info("Generating/retrieving post embeddings for semantic clustering")
+        
+        # Initialize embedding manager lazily
+        if self.embedding_manager is None:
+            from embedding.embedding_manager import EmbeddingManager
+            self.embedding_manager = EmbeddingManager()
         
         # Prepare post texts for embedding
         post_texts = []
@@ -178,37 +197,35 @@ class EnhancedTopicAnalyzer:
             # For small threads, create a single cluster
             return [list(range(len(embeddings)))]
         
-        try:
-            # Use k-means clustering for semantic grouping
-            from sklearn.cluster import KMeans
-            from sklearn.metrics import silhouette_score
-            
-            # Convert embeddings to matrix
-            embedding_matrix = np.array([emb for emb in embeddings])
-            
-            # Determine optimal number of clusters
-            optimal_k = self._find_optimal_clusters(embedding_matrix)
-            
-            # Perform clustering
-            kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
-            cluster_labels = kmeans.fit_predict(embedding_matrix)
-            
-            # Group posts by cluster
-            clusters = defaultdict(list)
-            for post_idx, cluster_id in enumerate(cluster_labels):
-                clusters[cluster_id].append(post_idx)
-            
-            logger.info(f"Semantic clustering: {len(embeddings)} posts → {optimal_k} clusters")
-            return list(clusters.values())
-            
-        except ImportError:
-            logger.warning("sklearn not available, using simple position-based clustering")
-            return self._fallback_clustering()
-        except Exception as e:
-            logger.warning(f"Clustering failed: {e}, using fallback method")
+        if SKLEARN_AVAILABLE and NUMPY_AVAILABLE:
+            try:
+                # Use k-means clustering for semantic grouping
+                # Convert embeddings to matrix
+                embedding_matrix = np.array([emb for emb in embeddings])
+                
+                # Determine optimal number of clusters
+                optimal_k = self._find_optimal_clusters(embedding_matrix)
+                
+                # Perform clustering
+                kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+                cluster_labels = kmeans.fit_predict(embedding_matrix)
+                
+                # Group posts by cluster
+                clusters = defaultdict(list)
+                for post_idx, cluster_id in enumerate(cluster_labels):
+                    clusters[cluster_id].append(post_idx)
+                
+                logger.info(f"Semantic clustering: {len(embeddings)} posts → {optimal_k} clusters")
+                return list(clusters.values())
+                
+            except Exception as e:
+                logger.warning(f"Clustering failed: {e}, using fallback method")
+                return self._fallback_clustering()
+        else:
+            logger.info("sklearn/numpy not available, using enhanced position-based clustering")
             return self._fallback_clustering()
     
-    def _find_optimal_clusters(self, embedding_matrix: np.ndarray) -> int:
+    def _find_optimal_clusters(self, embedding_matrix) -> int:
         """Find optimal number of clusters using silhouette analysis."""
         n_posts = len(embedding_matrix)
         
@@ -223,27 +240,27 @@ class EnhancedTopicAnalyzer:
         if max_clusters < 2:
             return 1
         
-        try:
-            from sklearn.cluster import KMeans
-            from sklearn.metrics import silhouette_score
-            
-            best_k = 2
-            best_score = -1
-            
-            for k in range(2, max_clusters + 1):
-                kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-                cluster_labels = kmeans.fit_predict(embedding_matrix)
-                score = silhouette_score(embedding_matrix, cluster_labels)
+        if SKLEARN_AVAILABLE:
+            try:
+                best_k = 2
+                best_score = -1
                 
-                if score > best_score:
-                    best_score = score
-                    best_k = k
-            
-            logger.debug(f"Optimal clusters: {best_k} (silhouette score: {best_score:.3f})")
-            return best_k
-            
-        except Exception as e:
-            logger.warning(f"Silhouette analysis failed: {e}")
+                for k in range(2, max_clusters + 1):
+                    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+                    cluster_labels = kmeans.fit_predict(embedding_matrix)
+                    score = silhouette_score(embedding_matrix, cluster_labels)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_k = k
+                
+                logger.debug(f"Optimal clusters: {best_k} (silhouette score: {best_score:.3f})")
+                return best_k
+                
+            except Exception as e:
+                logger.warning(f"Silhouette analysis failed: {e}")
+                return min(5, n_posts // 20 + 1)  # Conservative fallback
+        else:
             return min(5, n_posts // 20 + 1)  # Conservative fallback
     
     def _fallback_clustering(self) -> List[List[int]]:
@@ -274,8 +291,11 @@ class EnhancedTopicAnalyzer:
             cluster_posts = [self.posts[idx] for idx in cluster_indices]
             
             # Calculate centroid embedding
-            cluster_embeddings = [self.post_embeddings[idx] for idx in cluster_indices]
-            centroid = np.mean(cluster_embeddings, axis=0) if cluster_embeddings else np.zeros(384)
+            if NUMPY_AVAILABLE and self.post_embeddings:
+                cluster_embeddings = [self.post_embeddings[idx] for idx in cluster_indices]
+                centroid = np.mean(cluster_embeddings, axis=0) if cluster_embeddings else np.zeros(384)
+            else:
+                centroid = []  # Empty for fallback mode
             
             # Create and analyze cluster
             topic_cluster = SemanticTopicCluster(i, cluster_posts, centroid)

@@ -14,7 +14,6 @@ import gc
 
 from config.settings import BASE_TMP_DIR
 from analytics.thread_analyzer import ThreadAnalyzer
-from analytics.enhanced_topic_analyzer import EnhancedTopicAnalyzer
 from utils.file_utils import atomic_write_json
 
 logger = logging.getLogger(__name__)
@@ -102,13 +101,20 @@ class ThreadNarrative:
     
     def _generate_optimized_narrative(self, posts: List[Dict], analytics: Dict, use_streaming: bool = False) -> Dict:
         """Generate narrative using enhanced semantic clustering approach."""
-        # Use enhanced topic analysis for better clustering
-        enhanced_analyzer = EnhancedTopicAnalyzer(self.thread_dir if hasattr(self, 'thread_dir') else 'tmp')
-        enhanced_analysis = enhanced_analyzer.analyze_thread_topics(posts)
+        # Try to use enhanced topic analysis for better clustering
+        enhanced_analysis = {}
+        try:
+            from analytics.enhanced_topic_analyzer import EnhancedTopicAnalyzer
+            enhanced_analyzer = EnhancedTopicAnalyzer(self.thread_dir if hasattr(self, 'thread_dir') else 'tmp')
+            enhanced_analysis = enhanced_analyzer.analyze_thread_topics(posts)
+            logger.info("Using enhanced semantic clustering for narrative generation")
+        except ImportError:
+            logger.info("Enhanced topic analyzer not available, using traditional methods")
+        except Exception as e:
+            logger.warning(f"Enhanced topic analysis failed: {e}, falling back to traditional methods")
         
         # Fall back to traditional phases if enhanced analysis fails
         if enhanced_analysis.get('enhanced_topics', {}).get('topic_clusters'):
-            logger.info("Using enhanced semantic clustering for narrative generation")
             enhanced_topics = enhanced_analysis['enhanced_topics']
             
             # Convert enhanced clusters to phase format for compatibility
