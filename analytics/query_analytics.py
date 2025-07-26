@@ -50,12 +50,20 @@ class ConversationalQueryProcessor:
             
             # Product recommendation expansions (generic for any product type)
             'recommend': 'recommend suggest advice best choice favorite buy purchase love prefer',
-            'best': 'best recommended top choice favorite popular most used highly rated',
             'which': 'which what recommend suggest best choice favorite popular commonly used most often',
             'buy': 'buy purchase recommend suggest best choice favorite where to buy link store',
             'popular': 'popular recommend best choice favorite commonly used most often highly rated',
             'favorite': 'favorite recommend best choice popular love prefer top choice',
-            'often': 'often recommend commonly used popular frequently mentioned best choice'
+            'often': 'often recommend commonly used popular frequently mentioned best choice',
+            
+            # Technical specification expansions
+            'materials': 'materials material made construction build composition parts components',
+            'material': 'material materials made construction build composition quality type',
+            'settings': 'settings configuration setup parameters values numbers specs',
+            'setting': 'setting settings configuration setup parameter value spec',
+            'specifications': 'specifications specs details parameters configuration technical',
+            'specs': 'specs specifications details parameters technical configuration',
+            'what are': 'what are details specifications information about parameters'
         }
         
         # Vague query indicators
@@ -303,8 +311,20 @@ class ConversationalQueryProcessor:
         """
         base_prompt = "You are an expert forum analyst. "
         
+        # Detect technical specification queries
+        query_lower = query.lower()
+        is_technical_query = any(term in query_lower for term in [
+            'materials', 'material', 'settings', 'setting', 'specifications', 'specs', 
+            'what are', 'parameters', 'configuration', 'components', 'parts'
+        ])
+        
         # Customize prompt based on query type and intent
-        if analysis.get('is_vague'):
+        if is_technical_query:
+            base_prompt += ("The user is asking for specific technical information. Focus on extracting concrete details, "
+                          "specifications, materials, settings, and configuration information from the posts. "
+                          "Look for specific values, measurements, part names, materials mentioned, and user experiences with different settings. "
+                          "If no specific technical information is found, clearly state that no posts discuss these details. ")
+        elif analysis.get('is_vague'):
             base_prompt += ("The user has asked a broad question. Provide a comprehensive overview "
                           "covering the main themes, key participants, and important insights from the discussion. ")
         

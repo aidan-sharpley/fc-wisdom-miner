@@ -59,9 +59,10 @@ Can directly analyze thread data to answer:
 
 **Technical Specifications Analysis:**
 - What wattage/temperature/voltage settings do people use?
-- Community settings and configurations mentioned
-- Technical specifications and user preferences
+- Materials, configurations, and component specifications
+- Technical specifications and user preferences  
 - Equipment settings and recommendations
+- Specific parameter values mentioned in discussions
 
 **Engagement Analysis:**
 - Highest/lowest rated posts (by upvotes, likes, reactions)
@@ -99,16 +100,17 @@ Best for understanding content and concepts:
 ## ROUTING DECISION FACTORS
 
 **Choose ANALYTICAL when:**
-- Query asks "who", "how many", "which user", "what settings"
-- Looking for specific factual data from thread metadata
-- Needs quantitative analysis of user behavior or specifications
-- Seeking rankings, counts, or statistical information
+- Query asks "who", "how many", "which user", "most active"
+- Looking for user activity, participation statistics, or rankings
+- Needs quantitative analysis of thread metadata (post counts, participant counts)
+- Seeking thread statistics, user rankings, or activity patterns
 
 **Choose SEMANTIC when:**
-- Query asks "how", "why", "what about", "explain"
-- Looking for content understanding and explanations
-- Needs synthesis of opinions and discussions
-- Seeking conceptual or educational information
+- Query asks about specific content, technical details, or product information
+- Looking for explanations, recommendations, or detailed information from posts
+- Needs to find and synthesize information from actual post content
+- Seeking technical specifications, product details, or user experiences
+- Query asks "what are", "what materials", "what settings", "how to", "explain"
 """
     
     def route_query(self, query: str, thread_metadata: Optional[Dict] = None) -> Dict:
@@ -151,10 +153,12 @@ Return this exact JSON format:
 }}
 
 Rules:
-- method: "analytical" for who/what/how many/settings queries, "semantic" for how/why/explain queries
+- method: "analytical" ONLY for who/how many/most active user queries, "semantic" for what are/what materials/what settings/technical content queries
+- IMPORTANT: Queries about specific content, materials, settings, or technical details should ALWAYS use "semantic"
+- IMPORTANT: Only use "analytical" for user activity statistics and thread metadata
 - confidence: 0.1 to 1.0
 - reasoning: One sentence explanation
-- query_type: technical_specs, participant_analysis, engagement, content_understanding, etc
+- query_type: content_search, participant_analysis, engagement, etc
 - search_depth: 10-50 (only used for semantic queries)
 
 JSON ONLY - NO OTHER TEXT:

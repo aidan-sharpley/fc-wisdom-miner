@@ -95,7 +95,8 @@ class QueryProcessor:
                 analytical_intent = [routing_decision.get('query_type', 'general')]
                 analytical_result = self.data_analyzer.analyze_query(query, analytical_intent)
                 
-                if 'error' not in analytical_result:
+                # Check if analytical processing found meaningful results
+                if 'error' not in analytical_result and self._has_meaningful_analytical_result(analytical_result):
                     # Generate response from analytical data
                     if stream:
                         response_generator = self._generate_analytical_response_stream(analytical_result)
@@ -127,6 +128,11 @@ class QueryProcessor:
                             'processing_time': processing_time,
                             'query_type': 'analytical'
                         }
+                else:
+                    # Analytical processing failed or found no relevant content
+                    # Fall back to semantic search for content-based queries
+                    logger.info("Analytical processing failed or found no content, falling back to semantic search")
+                    routing_decision = {'method': 'semantic', 'search_depth': 15}
             
             else:
                 # Step 4: Semantic search processing
@@ -207,6 +213,34 @@ class QueryProcessor:
                 'error': str(e),
                 'processing_time': time.time() - start_time
             }
+    
+    def _has_meaningful_analytical_result(self, analytical_result: Dict) -> bool:
+        """Check if analytical result contains meaningful content (not just metadata).
+        
+        Args:
+            analytical_result: Result from analytical processing
+            
+        Returns:
+            True if result contains meaningful content, False otherwise
+        """
+        result_type = analytical_result.get('type', '')
+        
+        # These are meaningful analytical results
+        if result_type in ['participant_analysis', 'positional_analysis', 'engagement_analysis']:
+            return True
+        
+        # Technical specifications should have actual content
+        if result_type == 'technical_specifications':
+            # Check if we found actual posts with technical content
+            relevant_posts = analytical_result.get('relevant_posts', [])
+            return len(relevant_posts) > 0
+        
+        # Content statistics are meaningful 
+        if result_type == 'content_statistics':
+            return True
+            
+        # Default to false for unknown or empty types
+        return False
     
     def _build_context(self, search_results: List[Dict], query_analysis: Dict) -> str:
         """Build context from search results.

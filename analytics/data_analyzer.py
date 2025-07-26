@@ -572,12 +572,27 @@ class ForumDataAnalyzer:
         
         # Technical specification/settings queries (should find actual user data)
         technical_spec_indicators = [
-            'what wattage', 'wattage setting', 'wattage do', 'power setting', 'watts',
-            'what temperature', 'temp setting', 'temperature do', 'degrees', 'celsius', 'fahrenheit',
-            'what voltage', 'voltage setting', 'volts', 'what resistance', 'ohms', 'resistance',
+            # Generic specifications
             'what settings', 'settings do', 'configuration', 'setup', 'how do people set',
             'what do people use', 'what do users set', 'community settings', 'recommended settings',
-            'typical settings', 'common settings', 'standard settings', 'preferred settings'
+            'typical settings', 'common settings', 'standard settings', 'preferred settings',
+            'specifications for', 'specs for', 'parameters for', 'settings for', 'configuration for',
+            'what specs', 'what parameters', 'what values', 'what numbers',
+            'specifications are', 'specs are', 'specifications work', 'specs work',
+            
+            # Materials and components
+            'materials', 'material for', 'what materials', 'materials used', 'made of',
+            'component specs', 'part specifications', 'build quality',
+            
+            # Measurements and values
+            'what wattage', 'wattage setting', 'power setting', 'watts',
+            'what temperature', 'temp setting', 'degrees', 'celsius', 'fahrenheit',
+            'what voltage', 'voltage setting', 'volts', 'what resistance', 'ohms',
+            'what pressure', 'pressure setting', 'psi', 'bar',
+            'what timing', 'timing setting', 'duration', 'time setting',
+            'what size', 'size setting', 'dimensions', 'measurements',
+            'what frequency', 'frequency setting', 'hz', 'hertz',
+            'what speed', 'speed setting', 'rpm', 'mph', 'kmh'
         ]
         
         # Check if we can handle this query
@@ -724,22 +739,33 @@ class ForumDataAnalyzer:
         
         query_lower = query.lower()
         
-        # Extract what technical aspect they're asking about
+        # Extract what technical aspect they're asking about based on query content
+        spec_type = 'general_specs'
+        search_patterns = []
+        
+        # Detect specific technical categories from query
         if any(term in query_lower for term in ['wattage', 'watts', 'power']):
-            spec_type = 'wattage'
+            spec_type = 'power_specs'
             search_patterns = ['watt', 'w ', ' w)', 'power', 'voltage']
         elif any(term in query_lower for term in ['temperature', 'temp', 'celsius', 'fahrenheit', 'degrees']):
-            spec_type = 'temperature'
+            spec_type = 'temperature_specs'
             search_patterns = ['°', 'degree', 'celsius', 'fahrenheit', 'temp', 'heat']
         elif any(term in query_lower for term in ['voltage', 'volts', 'volt']):
-            spec_type = 'voltage'
+            spec_type = 'voltage_specs'
             search_patterns = ['volt', 'v ', ' v)', 'voltage']
         elif any(term in query_lower for term in ['resistance', 'ohm']):
-            spec_type = 'resistance'
+            spec_type = 'resistance_specs'
             search_patterns = ['ohm', 'ω', 'resistance']
+        elif any(term in query_lower for term in ['material', 'materials', 'made of']):
+            spec_type = 'material_specs'
+            search_patterns = ['material', 'made', 'build', 'construct', 'composition']
         else:
-            spec_type = 'settings'
-            search_patterns = ['setting', 'config', 'setup', 'adjust', 'set to', 'use']
+            # Generic technical specifications - extract key terms from query
+            spec_type = 'general_specs'
+            # Extract potential technical terms from the query itself
+            query_words = query_lower.split()
+            technical_words = [word for word in query_words if len(word) > 3 and word not in ['what', 'are', 'the', 'for', 'and', 'with', 'how', 'does', 'settings']]
+            search_patterns = technical_words[:5] + ['setting', 'config', 'spec', 'parameter']
         
         # Find posts mentioning technical specifications
         relevant_posts = []
@@ -750,20 +776,20 @@ class ForumDataAnalyzer:
         for post in posts:
             content = post.get('content', '').lower()
             
-            # Look for numerical values with units
-            if spec_type == 'wattage':
-                # Look for wattage patterns like "20W", "20 watts", "20 watt"
-                watt_matches = re.findall(r'(\d+(?:\.\d+)?)\s*(?:w\b|watts?\b|wattage)', content, re.IGNORECASE)
-                if watt_matches:
-                    for match in watt_matches:
+            # Look for numerical values with units for specific types
+            if spec_type == 'power_specs':
+                # Look for power patterns like "20W", "20 watts", "20 watt"
+                power_matches = re.findall(r'(\d+(?:\.\d+)?)\s*(?:w\b|watts?\b|wattage)', content, re.IGNORECASE)
+                if power_matches:
+                    for match in power_matches:
                         settings_mentioned.append(f"{match}W")
                     relevant_posts.append({
                         **post,
-                        'spec_values': [f"{match}W" for match in watt_matches],
-                        'relevance_reason': f'Mentions {len(watt_matches)} wattage setting(s)'
+                        'spec_values': [f"{match}W" for match in power_matches],
+                        'relevance_reason': f'Mentions {len(power_matches)} power setting(s)'
                     })
             
-            elif spec_type == 'temperature':
+            elif spec_type == 'temperature_specs':
                 # Look for temperature patterns
                 temp_matches = re.findall(r'(\d+(?:\.\d+)?)\s*(?:°?[cf]\b|celsius|fahrenheit|degrees?)', content, re.IGNORECASE)
                 if temp_matches:
@@ -775,12 +801,50 @@ class ForumDataAnalyzer:
                         'relevance_reason': f'Mentions {len(temp_matches)} temperature setting(s)'
                     })
             
+            elif spec_type == 'voltage_specs':
+                # Look for voltage patterns
+                voltage_matches = re.findall(r'(\d+(?:\.\d+)?)\s*(?:v\b|volts?\b|voltage)', content, re.IGNORECASE)
+                if voltage_matches:
+                    for match in voltage_matches:
+                        settings_mentioned.append(f"{match}V")
+                    relevant_posts.append({
+                        **post,
+                        'spec_values': [f"{match}V" for match in voltage_matches],
+                        'relevance_reason': f'Mentions {len(voltage_matches)} voltage setting(s)'
+                    })
+            
+            elif spec_type == 'material_specs':
+                # Look for material mentions - find any material terms in content
+                material_mentions = []
+                # Extract sentences that mention materials
+                sentences = content.split('.')
+                for sentence in sentences:
+                    if any(pattern in sentence for pattern in search_patterns):
+                        material_mentions.append(sentence.strip())
+                
+                if material_mentions:
+                    settings_mentioned.extend(material_mentions[:3])  # Limit to avoid spam
+                    relevant_posts.append({
+                        **post,
+                        'spec_values': material_mentions[:3],
+                        'relevance_reason': f'Discusses materials'
+                    })
+            
             elif any(pattern in content for pattern in search_patterns):
-                # General settings/configuration posts
-                relevant_posts.append({
-                    **post,
-                    'relevance_reason': f'Discusses {spec_type} settings'
-                })
+                # Generic technical specifications - extract relevant content
+                spec_mentions = []
+                # Extract sentences containing the search patterns
+                sentences = content.split('.')
+                for sentence in sentences:
+                    if any(pattern in sentence for pattern in search_patterns):
+                        spec_mentions.append(sentence.strip())
+                
+                if spec_mentions:
+                    relevant_posts.append({
+                        **post,
+                        'spec_values': spec_mentions[:3],  # Limit to 3 most relevant sentences
+                        'relevance_reason': f'Discusses technical specifications'
+                    })
         
         if not relevant_posts:
             return {
