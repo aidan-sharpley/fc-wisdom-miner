@@ -85,42 +85,51 @@ This is a modular forum analysis application with separate components for scrapi
 - **Temporal Analysis**: Activity over time, posting patterns, thread duration
 - **Factual Accuracy**: 100% accurate answers using real data aggregation
 
-#### 5. **Embedding System** (`embedding/embedding_manager.py`)
-- **Domain-Specific Processing**: Optimized for vape/device forum terminology
+#### 5. **Thread Narrative Generator** (`analytics/thread_narrative.py`)
+- **Optimized Performance**: Reduced phases from 300 to ~15 maximum for M1 MacBook Air efficiency
+- **Aggressive Caching**: MD5-based prompt caching with persistent disk storage to avoid redundant LLM calls
+- **Memory-Efficient Processing**: Single-pass generation with intelligent phase grouping
+- **Auto-Display**: Narratives automatically appear when threads are loaded in the UI
+- **Generic Topic Detection**: Works with any forum domain without hardcoded terms
+- **Phase Intelligence**: Automatically detects conversation phases based on content analysis
+
+#### 6. **Embedding System** (`embedding/embedding_manager.py`)
+- **Generic Processing**: No longer hardcoded to specific forum terminology - works with any domain
 - **Enhanced HyDE**: Better hypothetical document generation for technical queries
 - **Memory-Efficient Caching**: 150MB cache for 8GB systems
 - **Optimized Batch Processing**: Reduced batch sizes (8 vs 10) to prevent memory spikes
 - **Performance Monitoring**: Detailed embedding generation statistics
 - **Progress Tracking**: Real-time progress bars for large datasets
 
-#### 6. **Multi-Factor Search Ranking** (`search/result_ranker.py`)
+#### 7. **Multi-Factor Search Ranking** (`search/result_ranker.py`)
 - **Recency Scoring**: Recent posts weighted higher in ranking
 - **Vote-Based Scoring**: Upvotes, reactions, and community engagement
 - **Author Authority**: Active participants get higher ranking
 - **Content Quality**: Length, formatting, and relevance indicators
 - **Contextual Weights**: Adapts ranking based on query type
 
-#### 7. **Analytics** (`analytics/thread_analyzer.py`)
+#### 8. **Analytics** (`analytics/thread_analyzer.py`)
 - **Thread Overview**: Participants, pages, duration, activity patterns
 - **Content Analysis**: Keywords, themes, discussion topics
 - **Engagement Metrics**: Vote distributions, reaction patterns
 - **Author Insights**: Most active contributors, authority levels
 - **URL-Based Thread Creator Extraction**: Parses canonical URLs to identify thread creators
 
-#### 8. **LLM Query Router** (`analytics/llm_query_router.py`)
+#### 9. **LLM Query Router** (`analytics/llm_query_router.py`)
 - **Intelligent Query Classification**: LLM-powered query analysis and routing
 - **Context-Aware Processing**: Understands query intent and complexity
 - **Enhanced Query Expansion**: Improves vague queries with domain knowledge
 - **Smart Response Generation**: Contextual response formatting
 - **Thread Authorship Detection**: Routes author/creator queries to metadata-based analysis
+- **Generic Routing**: No hardcoded device-specific terms, works with any thread content
 
-#### 9. **Platform Configuration System** (`config/platform_config.py`)
+#### 10. **Platform Configuration System** (`config/platform_config.py`)
 - **Dynamic Forum Detection**: Automatically detects forum platform types
 - **YAML-Based Configurations**: Extensible platform-specific settings in `configs/platforms/`
 - **CSS Selector Management**: Platform-specific selectors for XenForo, vBulletin, phpBB
 - **Adaptive Scraping**: Adjusts scraping behavior based on platform
 
-#### 10. **Security & Utilities**
+#### 11. **Security & Utilities**
 - **Security Utils** (`utils/security.py`): Input validation, SSRF protection, sanitization
 - **Performance Analytics** (`utils/performance_analytics.py`): Comprehensive performance monitoring
 - **Advanced Caching** (`utils/advanced_cache.py`): Enhanced caching with intelligent cleanup
@@ -133,6 +142,7 @@ tmp/
 ├── embeddings_cache/              # Embedding cache with metadata
 │   ├── [hash].pkl                 # Individual embedding files
 │   └── cache_metadata.json        # Cache management data
+├── narrative_cache.json           # Global narrative prompt cache (MD5-based)
 ├── app.log                        # Application logs  
 └── threads/
     └── [thread-key]/              # Per-thread directory
@@ -143,6 +153,7 @@ tmp/
         ├── posts.json             # Processed posts with enhanced metadata
         ├── metadata.json          # Thread metadata and processing stats
         ├── thread_analytics.json  # Thread analytics
+        ├── thread_summary.json    # Auto-generated narrative and analytics
         ├── index_hnsw.bin         # HNSW vector search index
         └── index_hnsw.bin.metadata.json # Index metadata
 
@@ -156,11 +167,22 @@ configs/
 
 ## Key Features
 
+### 📖 **Auto-Generated Thread Narratives** 
+- **Performance Optimized**: Reduced from 300 to ~15 phases maximum for M1 MacBook Air efficiency
+- **Intelligent Phase Detection**: Generic topic detection works with any forum domain
+- **Conversation Overview**: Comprehensive thread summaries with key developments and outcomes
+- **Key Contributors**: Identifies top participants with engagement metrics and activity patterns
+- **Topic Evolution**: Shows how discussions evolved across different conversation phases
+- **Auto-Display**: Narratives appear automatically when threads are loaded in the UI
+- **Aggressive Caching**: MD5-based prompt caching avoids redundant LLM calls for performance
+- **Memory Efficient**: Single-pass generation with intelligent grouping for 8GB systems
+
 ### 🎯 **Query Accuracy & Smart Interpretation**
 - **Analytical Queries**: "Who is most active?" → Analyzes ALL posts, returns exact counts
 - **Thread Authorship Queries**: "Who is the thread author?" → URL-based metadata extraction with high confidence
 - **Positional Queries**: "Who was the second user to post?" → Chronological analysis with post links
 - **Semantic Queries**: "What heating techniques work best?" → Vector search + LLM
+- **Technical Specifications**: "What materials and settings work best?" → Generic extraction, no hardcoded terms
 - **Smart Detection**: Automatically routes queries to appropriate processor
 - **Vague Query Enhancement**: "highest rated" → Auto-expanded with engagement terms for better results
 - **Conversational Understanding**: System explains its interpretation for ambiguous queries
@@ -235,6 +257,21 @@ configs/
 **Solution**: Implemented metadata-grounded authorship identification with URL parsing
 **Result**: 100% accurate thread creator identification using canonical URL extraction
 
+### 8. **Thread Narrative Performance Optimization** ✅
+**Problem**: Narrative generation taking ~14s per phase across 300 phases (~70 minutes total)
+**Solution**: Complete rewrite with intelligent phase detection, aggressive caching, and M1 optimization
+**Result**: Reduced to ~15 phases maximum with MD5-based prompt caching, auto-display in UI
+
+### 9. **Generic Query System** ✅
+**Problem**: System had hardcoded device-specific terms limiting use to specific forum types
+**Solution**: Removed all hardcoded terms, made routing and analysis completely generic
+**Result**: Works with any forum thread content without domain-specific customization
+
+### 10. **UI Thread Narrative Display** ✅
+**Problem**: Thread narratives weren't displaying automatically when threads were loaded
+**Solution**: Fixed data structure mismatch between frontend and backend (narrative vs narrative_summary)
+**Result**: Thread narratives now appear automatically when selecting threads in the UI
+
 ## Usage Patterns
 
 ### For New Threads
@@ -284,6 +321,9 @@ configs/
 3. **Thread author queries returning wrong results**: Ensure thread analytics contain URL-based thread_creator metadata
 4. **Missing vote data**: Verify forum platform CSS selectors in `config/settings.py`
 5. **Slow performance**: Check embedding cache hit rate and HNSW index parameters
+6. **Thread narratives not appearing**: Check if `thread_summary.json` exists and contains `narrative` key
+7. **Narrative generation too slow**: Verify aggressive caching is working, check `narrative_cache.json`
+8. **Generic queries failing**: System now works with any domain - no hardcoded terms should be needed
 
 ### Performance Monitoring
 - All major operations include timing statistics
