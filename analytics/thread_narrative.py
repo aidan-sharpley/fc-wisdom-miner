@@ -177,16 +177,46 @@ class ThreadNarrative:
         
         return phases
     
+    def _extract_topic_keywords(self, phase_posts: List[Dict], topic: str) -> List[str]:
+        """Extract key keywords from phase posts for search enhancement."""
+        all_content = ' '.join([post.get('content', '').lower() for post in phase_posts])
+        
+        # Common forum discussion words to filter out
+        stop_words = {
+            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
+            'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those',
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+            'post', 'thread', 'forum', 'user', 'member', 'page', 'reply', 'quote', 'edit'
+        }
+        
+        # Extract words that appear frequently in this phase
+        words = [word.strip('.,!?();:[]{}') for word in all_content.split() if len(word) > 3]
+        word_counts = Counter([word for word in words if word not in stop_words])
+        
+        # Get top 8 most frequent words as keywords
+        top_keywords = [word for word, count in word_counts.most_common(8) if count > 1]
+        
+        # Add topic-specific terms
+        if topic.lower() != 'general':
+            top_keywords.insert(0, topic.lower())
+        
+        return top_keywords[:8]
+    
     def _create_single_phase(self, posts: List[Dict]) -> Dict:
         """Create a single phase for small threads."""
         return self._create_phase_summary('general', posts, 0)
     
     def _create_phase_summary(self, topic: str, phase_posts: List[Dict], sequence: int) -> Dict:
-        """Create phase summary with essential data."""
+        """Create enhanced phase summary with rich topic narrative data."""
         start_pos = phase_posts[0].get('global_position', 0)
         end_pos = phase_posts[-1].get('global_position', 0)
         start_page = phase_posts[0].get('page', 1)
         end_page = phase_posts[-1].get('page', 1)
+        
+        # Get first post for URL generation
+        first_post = phase_posts[0]
+        first_post_url = first_post.get('url', '')
         
         authors = Counter(post.get('author', 'Unknown') for post in phase_posts)
         total_reactions = sum(
@@ -205,15 +235,24 @@ class ThreadNarrative:
         scored_posts.sort(key=lambda x: x[0], reverse=True)
         sample_posts = [post for _, post in scored_posts[:3]]
         
+        # Generate topic keywords for narrative context
+        topic_keywords = self._extract_topic_keywords(phase_posts, topic)
+        
         return {
             'sequence': sequence,
             'topic': topic.title(),
+            'title': f"{topic.title()} Discussion",  # Enhanced title
             'post_range': f"posts {start_pos}-{end_pos}",
             'page_range': f"pages {start_page}-{end_page}" if start_page != end_page else f"page {start_page}",
             'post_count': len(phase_posts),
             'key_participants': dict(authors.most_common(2)),
             'total_engagement': total_reactions,
-            'sample_posts': sample_posts
+            'sample_posts': sample_posts,
+            'first_post_url': first_post_url,  # Clickable URL to topic start
+            'topic_keywords': topic_keywords,  # Keywords for search enhancement
+            'start_date': first_post.get('date', ''),
+            'end_date': phase_posts[-1].get('date', ''),
+            'narrative_ready': True  # Flag for narrative generation
         }
     
     def _generate_all_narratives(self, phases: List[Dict], all_posts: List[Dict], reaction_posts: List[Dict]) -> List[Dict]:
@@ -290,49 +329,71 @@ Focus on concrete outcomes and what was accomplished."""
             return [self._generate_fallback_narrative(phase) for phase in phase_batch]
     
     def _generate_single_phase_narrative_safe(self, phase: Dict, all_posts: List[Dict], reaction_posts: List[Dict]) -> Dict:
-        """Generate narrative for a single phase safely."""
+        """Generate enhanced narrative for a single phase with topic-aware content."""
         sample_posts = phase.get('sample_posts', [])
         post_samples = []
         
-        for post in sample_posts[:2]:  # Max 2 posts
+        for post in sample_posts[:3]:  # Increased to 3 posts for richer context
             author = post.get('author', 'Unknown')
-            content = post.get('content', '').strip()[:200]
+            content = post.get('content', '').strip()[:300]  # Increased content length
             engagement = post.get('upvotes', 0) + post.get('likes', 0)
             if engagement > 0:
                 post_samples.append(f"{author} (+{engagement}): {content}")
             else:
                 post_samples.append(f"{author}: {content}")
         
-        # Check cache first
-        cache_key = f"single_{phase['topic']}_{phase['post_count']}_{len(post_samples)}"
+        # Enhanced cache key with topic keywords
+        topic_keywords = ', '.join(phase.get('topic_keywords', [])[:3])
+        cache_key = f"enhanced_{phase['topic']}_{phase['post_count']}_{topic_keywords}"
+        
         if cache_key in self._prompt_cache:
-            logger.info("Using cached single phase narrative")
+            logger.info("Using cached enhanced phase narrative")
             narrative_text = self._prompt_cache[cache_key]
         else:
-            system_prompt = "Create a concise 2-3 sentence summary focusing on key developments."
+            system_prompt = """Create a rich 3-4 sentence topic narrative that captures what this discussion section covers. 
+Include what participants discussed, key points raised, and any conclusions or developments. 
+Write in an engaging, informative tone suitable for forum users browsing topics."""
             
-            prompt = f"""Summarize this forum discussion phase in 2-3 sentences:
+            # Enhanced prompt with more context
+            participants_list = ', '.join(list(phase['key_participants'].keys()))
+            keywords_context = f"Key discussion terms: {', '.join(phase.get('topic_keywords', [])[:5])}" if phase.get('topic_keywords') else ""
+            
+            prompt = f"""Generate a comprehensive topic narrative for this forum discussion section:
 
-Topic: {phase['topic']} ({phase['page_range']}, {phase['post_count']} posts)
-Key participants: {', '.join(list(phase['key_participants'].keys()))}
-Sample discussions:
+**Topic**: {phase['topic']} Discussion ({phase['page_range']}, {phase['post_count']} posts)
+**Timeframe**: {phase.get('start_date', 'Unknown')} to {phase.get('end_date', 'Unknown')}
+**Key Participants**: {participants_list}
+**Engagement Level**: {phase.get('total_engagement', 0)} reactions
+{keywords_context}
+
+**Representative Posts**:
 {chr(10).join(post_samples)}
 
-Focus on concrete outcomes and what was accomplished."""
+Create a 3-4 sentence narrative that explains:
+1. What this topic section discusses and its main focus
+2. Key points, questions, or developments covered
+3. Level of community engagement and participant contributions
+4. Any notable outcomes, solutions, or conclusions reached
+
+Write as if describing this topic to someone browsing the thread overview."""
             
             try:
                 narrative_text, model_used = _get_llm_manager().get_narrative_response(prompt, system_prompt)
-                logger.info(f"Generated single phase narrative using {model_used}")
+                logger.info(f"Generated enhanced phase narrative using {model_used}")
                 # Cache the response
                 self._prompt_cache[cache_key] = narrative_text
             except Exception as e:
-                logger.warning(f"Single phase narrative failed: {e}")
-                narrative_text = self._generate_fallback_narrative(phase)['narrative_text']
+                logger.warning(f"Enhanced phase narrative failed: {e}")
+                narrative_text = self._generate_enhanced_fallback_narrative(phase)
         
         return {
             'phase_summary': phase,
             'narrative_text': narrative_text,
-            'highlights': self._find_phase_highlights(phase, reaction_posts)
+            'topic_title': phase.get('title', f"{phase['topic']} Discussion"),
+            'first_post_url': phase.get('first_post_url', ''),
+            'topic_keywords': phase.get('topic_keywords', []),
+            'highlights': self._find_phase_highlights(phase, reaction_posts),
+            'engagement_summary': self._create_engagement_summary(phase)
         }
     
     def _parse_batch_response(self, response: str, phases: List[Dict], reaction_posts: List[Dict]) -> List[Dict]:
@@ -547,6 +608,55 @@ Focus on what was accomplished and key outcomes."""
             })
         
         return sorted(contributors, key=lambda x: x['influence_score'], reverse=True)
+    
+    def _generate_enhanced_fallback_narrative(self, phase: Dict) -> str:
+        """Generate high-quality enhanced fallback narrative when LLM fails."""
+        participant_count = len(phase['key_participants'])
+        top_participants = list(phase['key_participants'].keys())[:2]
+        
+        if len(top_participants) == 1:
+            participant_text = f"{top_participants[0]} led the discussion"
+        elif len(top_participants) == 2:
+            participant_text = f"{top_participants[0]} and {top_participants[1]} were key contributors"
+        else:
+            participant_text = f"{participant_count} participants contributed"
+        
+        engagement_text = ""
+        if phase.get('total_engagement', 0) > 0:
+            engagement_text = f" with {phase['total_engagement']} community reactions"
+        
+        # Enhanced fallback with topic keywords
+        keywords = phase.get('topic_keywords', [])
+        keywords_text = f" focusing on {', '.join(keywords[:3])}" if keywords else ""
+        
+        topic_name = phase.get('topic', 'General').lower()
+        
+        fallback_narrative = (
+            f"This {topic_name} discussion section spans {phase['post_count']} posts across {phase['page_range']}"
+            f"{keywords_text}. {participant_text.capitalize()}{engagement_text}, "
+            f"covering key aspects of the topic. The conversation took place from {phase.get('start_date', 'unknown date')} "
+            f"to {phase.get('end_date', 'unknown date')}, representing a focused segment of the broader thread discussion."
+        )
+        
+        return fallback_narrative
+    
+    def _create_engagement_summary(self, phase: Dict) -> Dict:
+        """Create engagement summary for the phase."""
+        total_engagement = phase.get('total_engagement', 0)
+        participant_count = len(phase.get('key_participants', {}))
+        post_count = phase.get('post_count', 0)
+        
+        # Calculate engagement metrics
+        avg_engagement = total_engagement / post_count if post_count > 0 else 0
+        engagement_level = 'high' if avg_engagement > 2 else 'medium' if avg_engagement > 0.5 else 'low'
+        
+        return {
+            'total_reactions': total_engagement,
+            'participant_count': participant_count,
+            'average_engagement': round(avg_engagement, 2),
+            'engagement_level': engagement_level,
+            'posts_per_participant': round(post_count / participant_count, 1) if participant_count > 0 else 0
+        }
 
 
 __all__ = ['ThreadNarrative']

@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(python:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(pip3 install:*)",
+      "Bash(uv pip install:*)",
+      "Bash(uv run:*)",
+      "Bash(source:*)",
+      "Bash(pkill:*)",
+      "Bash(jq:*)",
+      "Bash(true)",
+      "Bash(kill:*)",
+      "Bash(uv python pin:*)",
+      "Bash(rm:*)",
+      "Bash(uv venv:*)",
+      "Bash(ls:*)",
+      "Bash(timeout:*)",
+      "Bash(chmod:*)",
+      "Bash(docker build:*)",
+      "Bash(curl:*)",
+      "Bash(open \"http://localhost:8080\")",
+      "Bash(open:*)",
+      "Bash(uv add:*)",
+      "Bash(uv:*)"
+    ],
+    "deny": []
+  }
+}

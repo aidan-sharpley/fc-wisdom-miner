@@ -152,11 +152,13 @@ class QueryProcessor:
                 # Stage 1: Keyword search for exact matches
                 keyword_results = self.keyword_search.search(query, top_k=max(25, search_depth // 2))
                 
-                # Stage 2: Semantic search
-                semantic_results, search_metadata = self.search_engine.search(search_query, top_k=search_depth)
+                # Stage 2: Enhanced semantic search with topic awareness
+                enhanced_query = self._enhance_query_with_topics(search_query, query_analysis)
+                semantic_results, search_metadata = self.search_engine.search(enhanced_query, top_k=search_depth)
                 
-                # Stage 3: Merge and deduplicate results
+                # Stage 3: Merge and deduplicate results with topic boosting
                 search_results = merge_search_results(semantic_results, keyword_results, max_results=min(search_depth + 15, 50))
+                search_results = self._boost_topic_relevant_results(search_results, query_analysis)
                 
                 logger.info(f"Multi-stage search: {len(keyword_results)} keyword + {len(semantic_results)} semantic → {len(search_results)} merged results")
                 
@@ -243,19 +245,23 @@ class QueryProcessor:
         return False
     
     def _build_context(self, search_results: List[Dict], query_analysis: Dict) -> str:
-        """Build context from search results.
+        """Build enhanced context from search results with topic-aware narratives.
         
         Args:
             search_results: Results from semantic search
             query_analysis: Query analysis results
             
         Returns:
-            Formatted context string
+            Enhanced context string with topic narratives and metadata
         """
         if not search_results:
             return "No relevant posts found in this thread."
         
         context_parts = []
+        matched_topics = set()
+        
+        # Load thread narratives for topic context
+        narrative_data = self._load_thread_narratives()
         
         for i, post in enumerate(search_results, 1):
             author = post.get('author', 'Unknown')
@@ -263,15 +269,31 @@ class QueryProcessor:
             date = post.get('date', 'Unknown date')
             similarity = post.get('similarity_score', 0)
             page = post.get('page', 1)
+            post_position = post.get('global_position', 0)
+            url = post.get('url', '')
             
-            # Format post for context
-            post_header = f"Post {i} | Author: {author} | Page: {page} | Date: {date} | Relevance: {similarity:.2f}"
+            # Find which topic this post belongs to
+            matching_topic = self._find_matching_topic(post_position, narrative_data)
+            if matching_topic:
+                matched_topics.add(matching_topic['topic'])
+                topic_info = f" | Topic: {matching_topic['topic']}"
+            else:
+                topic_info = ""
+            
+            # Format post for context with topic information
+            post_header = f"Post {i} | Author: {author} | Page: {page} | Date: {date} | Relevance: {similarity:.2f}{topic_info}"
+            if url:
+                post_header += f" | [View Post]({url})"
+            
             post_content = content[:1500]  # Limit content length
             
             if len(content) > 1500:
                 post_content += "\n[... content truncated ...]"
             
-            context_parts.append(f"{post_header}\n{'-' * 50}\n{post_content}\n")
+            context_parts.append(f"{post_header}\n{'-' * 60}\n{post_content}\n")
+        
+        # Add relevant topic narratives at the top for context
+        topic_context = self._build_topic_context(matched_topics, narrative_data, query_analysis)
         
         # Add enhanced thread-level context if available
         thread_context = ""
@@ -313,7 +335,7 @@ class QueryProcessor:
                     coverage_pct = (len(search_results) / total_posts) * 100
                     thread_context += f"Search Coverage: {len(search_results)}/{total_posts} posts ({coverage_pct:.1f}%)\n"
         
-        context = thread_context + "\nRELEVANT POSTS:\n" + "\n".join(context_parts)
+        context = thread_context + topic_context + "\nRELEVANT POSTS:\n" + "\n".join(context_parts)
         
         # Add metadata priority guidance for authorship queries
         query = query_analysis.get('original_query', '').lower()
@@ -332,8 +354,168 @@ class QueryProcessor:
                         f"Do not infer authorship from post frequency or content analysis.\n\n"
                     ) + context
         
-        logger.debug(f"Built context with {len(search_results)} posts ({len(context)} characters)")
+        logger.debug(f"Built enhanced context with {len(search_results)} posts, {len(matched_topics)} topics ({len(context)} characters)")
         return context
+    
+    def _load_thread_narratives(self) -> Dict:
+        """Load thread narratives from thread summary file."""
+        try:
+            summary_file = f"{self.thread_dir}/thread_summary.json"
+            summary_data = safe_read_json(summary_file)
+            if summary_data and 'narrative' in summary_data:
+                narrative = summary_data['narrative']
+                if 'narrative_sections' in narrative:
+                    return {'narrative_sections': narrative['narrative_sections']}
+            return {'narrative_sections': []}
+        except Exception as e:
+            logger.debug(f"Could not load thread narratives: {e}")
+            return {'narrative_sections': []}
+    
+    def _find_matching_topic(self, post_position: int, narrative_data: Dict) -> Optional[Dict]:
+        """Find which topic a post belongs to based on its position."""
+        if not narrative_data or not narrative_data.get('narrative_sections'):
+            return None
+        
+        for section in narrative_data['narrative_sections']:
+            phase_summary = section.get('phase_summary', {})
+            post_range = phase_summary.get('post_range', '')
+            
+            # Parse post range like "posts 1-24" 
+            if 'posts' in post_range:
+                try:
+                    range_part = post_range.split('posts ')[1]
+                    if '-' in range_part:
+                        start_pos, end_pos = map(int, range_part.split('-'))
+                        if start_pos <= post_position <= end_pos:
+                            return {
+                                'topic': phase_summary.get('topic', 'General'),
+                                'title': section.get('topic_title', 'Discussion'),
+                                'narrative': section.get('narrative_text', ''),
+                                'first_post_url': section.get('first_post_url', ''),
+                                'keywords': section.get('topic_keywords', [])
+                            }
+                except (ValueError, IndexError):
+                    continue
+        
+        return None
+    
+    def _build_topic_context(self, matched_topics: set, narrative_data: Dict, query_analysis: Dict) -> str:
+        """Build topic context from matched topics and their narratives."""
+        if not matched_topics or not narrative_data.get('narrative_sections'):
+            return ""
+        
+        topic_context = "\n📋 RELEVANT TOPIC NARRATIVES:\n"
+        topic_context += "=" * 50 + "\n"
+        
+        # Find narratives for matched topics
+        for section in narrative_data['narrative_sections']:
+            phase_summary = section.get('phase_summary', {})
+            topic = phase_summary.get('topic', 'General')
+            
+            if topic in matched_topics:
+                title = section.get('topic_title', f"{topic} Discussion")
+                narrative = section.get('narrative_text', '')
+                post_range = phase_summary.get('post_range', '')
+                page_range = phase_summary.get('page_range', '')
+                first_post_url = section.get('first_post_url', '')
+                
+                topic_context += f"\n🔍 **{title}** ({post_range}, {page_range})\n"
+                if first_post_url:
+                    topic_context += f"📎 [Jump to topic start]({first_post_url})\n"
+                
+                if narrative:
+                    topic_context += f"📖 {narrative}\n"
+                
+                # Add topic keywords for search context
+                keywords = section.get('topic_keywords', [])
+                if keywords:
+                    topic_context += f"🏷️ Key terms: {', '.join(keywords[:5])}\n"
+                
+                topic_context += "-" * 40 + "\n"
+        
+        topic_context += "\n"
+        return topic_context
+    
+    def _enhance_query_with_topics(self, original_query: str, query_analysis: Dict) -> str:
+        """Enhance search query with relevant topic keywords from narratives."""
+        try:
+            narrative_data = self._load_thread_narratives()
+            if not narrative_data.get('narrative_sections'):
+                return original_query
+            
+            # Extract all topic keywords from narratives
+            all_topic_keywords = set()
+            for section in narrative_data['narrative_sections']:
+                keywords = section.get('topic_keywords', [])
+                all_topic_keywords.update(keywords)
+            
+            # Find keywords that match or relate to the query
+            query_lower = original_query.lower()
+            matching_keywords = []
+            
+            for keyword in all_topic_keywords:
+                if (len(keyword) > 3 and 
+                    (keyword in query_lower or 
+                     any(word in keyword for word in query_lower.split() if len(word) > 3))):
+                    matching_keywords.append(keyword)
+            
+            # Enhance query with top 3 matching keywords
+            if matching_keywords:
+                enhanced_query = f"{original_query} {' '.join(matching_keywords[:3])}"
+                logger.info(f"Enhanced query with topic keywords: '{original_query}' → '{enhanced_query}'")
+                return enhanced_query
+            
+            return original_query
+            
+        except Exception as e:
+            logger.debug(f"Query enhancement failed: {e}")
+            return original_query
+    
+    def _boost_topic_relevant_results(self, search_results: List[Dict], query_analysis: Dict) -> List[Dict]:
+        """Boost search results that are from topics relevant to the query."""
+        try:
+            narrative_data = self._load_thread_narratives()
+            if not narrative_data.get('narrative_sections'):
+                return search_results
+            
+            query_lower = query_analysis.get('original_query', '').lower()
+            
+            # Score boost for posts from relevant topics
+            for post in search_results:
+                post_position = post.get('global_position', 0)
+                matching_topic = self._find_matching_topic(post_position, narrative_data)
+                
+                if matching_topic:
+                    # Check if topic keywords match the query
+                    topic_keywords = matching_topic.get('keywords', [])
+                    topic_name = matching_topic.get('topic', '').lower()
+                    
+                    boost_score = 0
+                    
+                    # Boost if topic name appears in query
+                    if topic_name in query_lower:
+                        boost_score += 0.1
+                    
+                    # Boost if topic keywords match query terms
+                    query_words = set(query_lower.split())
+                    keyword_matches = len(set(topic_keywords) & query_words)
+                    if keyword_matches > 0:
+                        boost_score += keyword_matches * 0.05
+                    
+                    # Apply boost to similarity score
+                    if boost_score > 0:
+                        current_score = post.get('similarity_score', 0)
+                        post['similarity_score'] = min(1.0, current_score + boost_score)
+                        post['topic_boosted'] = True
+                        logger.debug(f"Boosted post {post_position} from topic '{topic_name}' by {boost_score:.3f}")
+            
+            # Re-sort by boosted scores
+            search_results.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+            return search_results
+            
+        except Exception as e:
+            logger.debug(f"Topic boosting failed: {e}")
+            return search_results
     
     def _get_streaming_response(self, prompt: str):
         """Get streaming response from LLM.
