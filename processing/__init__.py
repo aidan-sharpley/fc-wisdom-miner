@@ -1,4 +1,4 @@
 """Processing module for Forum Wisdom Miner."""
 
-from .post_processor import *
-from .thread_processor import *
+from .post_processor import PostProcessor
+from .thread_processor import ThreadProcessor
