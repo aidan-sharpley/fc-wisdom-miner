@@ -7,7 +7,7 @@ Designed to run efficiently on consumer hardware (8GB RAM), this Flask-based too
 - **Analytical questions** (e.g., "Who is the most active user?", "Who created this thread?") and
 - **Semantic questions** (e.g., "What are the best heating techniques?").
 
-The system provides **verifiable, fact-checked answers** with clickable post evidence for analytical queries and context-aware responses for semantic queries. **Thread narratives with enhanced topic overviews are automatically generated** using semantic clustering, providing immediate comprehensive insights with supporting evidence. All claims are backed by specific post links for full traceability.
+The system provides **verifiable, fact-checked answers** with clickable post evidence for analytical queries and context-aware responses for semantic queries. **Thread narratives with intelligent topic overviews are automatically generated** using content-based detection, providing immediate comprehensive insights with supporting evidence. All claims are backed by specific post links for full traceability.
 
 ## Foreward by human engineer
 I was inspired to start this project when reading a public forum that had pretty minimal and tedious search capabilities. I wanted to explore what large language models can actually do—separate from the large-scale cloud services and interfaces built around tools like ChatGPT. As a test case, I focused on a real-world challenge: **how difficult it is to find specific, valuable info buried in long forum threads**.
@@ -16,11 +16,11 @@ I used chatgpt, claude, gemini, deepseek, and qwen models to engineer this mvp. 
 
 ## ✨ Key Features
 
-- 📖 **Enhanced Thread Narratives**: Semantic clustering with comprehensive 1-2 sentence topic overviews, post ranges, and clickable links to topic starts
+- 📖 **Intelligent Thread Narratives**: Content-based topic detection with comprehensive 1-2 sentence topic overviews, post ranges, and clickable links to topic starts
 - 🎯 **Dual-Engine Query System**: Provides analytical (data-driven) and semantic (LLM-based) query processing with automatic routing
 - ✅ **Verifiable Responses**: All claims backed by specific post evidence with clickable citations and confidence levels
-- 🔍 **Hybrid Search**: ElasticSearch integration with semantic search fallback for fast, ranked full-text search
-- 🔄 **Multi-Pass Analysis**: Cross-validated insights from topic, participant, engagement, and temporal analysis
+- 🔍 **Semantic Search**: HNSW-based vector search optimized for efficiency and accuracy
+- 📊 **Comprehensive Analysis**: Integrated insights from topic, participant, engagement, and temporal analysis
 - 👤 **Thread Author Identification**: Metadata-grounded thread creator detection using URL parsing with high accuracy
 - 🔗 **Clickable Post Links**: Provides direct links to the specific source posts for all analytical results, ensuring full traceability
 - 🧠 **Local LLM Powered**: Uses Ollama with deepseek-r1:1.5b and nomic-embed-text models for privacy and performance
@@ -36,10 +36,9 @@ I used chatgpt, claude, gemini, deepseek, and qwen models to engineer this mvp. 
 
 ### Core Components
 
-- **Enhanced Thread Narrative Generator**: Semantic clustering with comprehensive topic overviews and verifiable claims
+- **Intelligent Thread Narrative Generator**: Content-based topic detection with comprehensive overviews and verifiable claims
 - **Verifiable Response System**: Fact-checking with post evidence, citations, and confidence scoring
-- **Hybrid Search Engine**: ElasticSearch + semantic search with intelligent fallback
-- **Multi-Pass Fusion System**: Cross-validated insights from multiple analysis types
+- **Semantic Search Engine**: HNSW-based vector search with efficient memory usage
 - **Forum Scraper**: Respectful scraping with jitter, comprehensive page detection and HTML preservation
 - **Query Router**: LLM-powered intelligent query classification and routing (fully generic, no hardcoded terms)
 - **Data Analyzer**: Statistical analysis with post links and thread authorship detection
@@ -76,11 +75,6 @@ API
    uv pip install Flask requests beautifulsoup4 hnswlib numpy tqdm
    ```
 
-3. **Optional Enhanced Dependencies** (for advanced features):
-   ```bash
-   uv add scikit-learn          # For semantic clustering
-   uv add elasticsearch         # For hybrid search
-   ```
 
 ### Running the Application
 
@@ -107,7 +101,7 @@ Visit http://localhost:8080 to access the web interface.
 - **Analytical**: "Who is the most active user?" → Data-driven response with post counts
 - **Thread Authorship**: "Who created this thread?" → Metadata-based creator identification
 - **Positional**: "Who was the second user to post?" → Chronological analysis with links
-- **Semantic**: "What are the best heating techniques?" → Vector search + LLM analysis
+- **Semantic**: "What are the best heating techniques?" → HNSW vector search + LLM analysis
 - **Technical**: "What materials and settings work best?" → Generic technical specification extraction
 
 ## 🔧 Configuration

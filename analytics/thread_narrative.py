@@ -1,5 +1,6 @@
 """
-Optimized thread narrative generation for M1 MacBook Air with 8GB RAM.
+Streamlined thread narrative generation for consumer hardware with 8GB RAM.
+Uses content-based topic detection for intelligent conversation phase analysis.
 Focus on performance, memory efficiency, and accuracy.
 """
 
@@ -100,7 +101,7 @@ class ThreadNarrative:
         return combined_result
     
     def _generate_optimized_narrative(self, posts: List[Dict], analytics: Dict, use_streaming: bool = False) -> Dict:
-        """Generate narrative using intelligent content-based topic detection."""
+        """Generate narrative using streamlined content-based topic detection."""
         logger.info("Using content-based topic detection for narrative generation")
         
         # Use optimized phase detection
@@ -122,62 +123,116 @@ class ThreadNarrative:
         return result
     
     def _detect_intelligent_phases(self, posts: List[Dict]) -> List[Dict]:
-        """Detect conversation phases with aggressive grouping for performance."""
+        """Detect conversation phases using improved temporal and content-based analysis."""
         if len(posts) < 50:
             return [self._create_single_phase(posts)]
         
+        # Use more reasonable phase sizing - aim for 8-12 phases max
+        total_posts = len(posts)
+        target_phases = min(12, max(3, total_posts // 200))  # 200-400 posts per phase typically
+        phase_size = total_posts // target_phases
+        phase_min_size = max(50, phase_size // 2)  # Minimum size is half the target
+        phase_max_size = phase_size * 2  # Maximum size is double the target
+        
         phases = []
         current_phase_posts = []
-        current_topic = None
-        phase_min_size = max(50, len(posts) // 15)  # Aim for max 15 phases total
         
-        topic_indicators = {
-            'technical': ['specs', 'specification', 'technical', 'measurement', 'performance', 'test'],
-            'troubleshooting': ['problem', 'issue', 'fix', 'broken', 'error', 'help', 'solution'],
-            'community': ['meet', 'group', 'community', 'social', 'discussion', 'opinion'],
-            'general': ['question', 'info', 'information', 'about', 'general', 'new']
-        }
-        
-        topic_votes = Counter()
+        # Process posts in chunks and create phases based on natural breaks
         for i, post in enumerate(posts):
-            content = post.get('content', '').lower()
-            
-            # Simple topic detection
-            for topic, keywords in topic_indicators.items():
-                if any(keyword in content for keyword in keywords):
-                    topic_votes[topic] += 1
-                    break
-            else:
-                topic_votes['general'] += 1
-            
             current_phase_posts.append(post)
             
-            # Phase transition: only on significant size or topic shift
-            if len(current_phase_posts) >= phase_min_size:
-                # Determine dominant topic for this phase
-                phase_topics = Counter()
-                for p in current_phase_posts[-phase_min_size:]:
-                    p_content = p.get('content', '').lower()
-                    for topic, keywords in topic_indicators.items():
-                        if any(keyword in p_content for keyword in keywords):
-                            phase_topics[topic] += 1
-                            break
-                    else:
-                        phase_topics['general'] += 1
+            # Create phase at natural break points or when size limits are reached
+            should_create_phase = False
+            
+            # Size-based criteria
+            if len(current_phase_posts) >= phase_max_size:
+                should_create_phase = True
+            elif len(current_phase_posts) >= phase_min_size:
+                # Look for natural break points (page boundaries, time gaps, author changes)
+                next_posts = posts[i+1:i+10] if i < len(posts) - 10 else posts[i+1:]
                 
-                dominant_topic = phase_topics.most_common(1)[0][0] if phase_topics else 'general'
-                
-                if current_topic is None:
-                    current_topic = dominant_topic
-                elif current_topic != dominant_topic and len(current_phase_posts) >= phase_min_size:
-                    phases.append(self._create_phase_summary(current_topic, current_phase_posts, len(phases)))
-                    current_phase_posts = []
-                    current_topic = dominant_topic
+                # Page boundary break
+                current_page = post.get('page', 1)
+                if next_posts and any(p.get('page', 1) != current_page for p in next_posts[:3]):
+                    should_create_phase = True
+                    
+                # Time gap break (check for significant time gaps)
+                elif self._has_significant_time_gap(post, next_posts):
+                    should_create_phase = True
+                    
+                # Activity density break (check for drops in posting frequency)
+                elif self._has_activity_drop(current_phase_posts[-20:], next_posts[:10]):
+                    should_create_phase = True
+            
+            if should_create_phase:
+                # Determine phase topic based on content analysis
+                phase_topic = self._determine_phase_topic(current_phase_posts)
+                phases.append(self._create_phase_summary(phase_topic, current_phase_posts, len(phases)))
+                current_phase_posts = []
         
+        # Handle remaining posts
         if current_phase_posts:
-            phases.append(self._create_phase_summary(current_topic or 'general', current_phase_posts, len(phases)))
+            phase_topic = self._determine_phase_topic(current_phase_posts)
+            phases.append(self._create_phase_summary(phase_topic, current_phase_posts, len(phases)))
         
         return phases
+    
+    def _determine_phase_topic(self, phase_posts: List[Dict]) -> str:
+        """Determine the main topic for a conversation phase based on content analysis."""
+        if not phase_posts:
+            return 'general'
+            
+        # Extract key terms from posts in this phase
+        all_content = ' '.join([post.get('content', '').lower() for post in phase_posts[:50]])  # Sample first 50 posts
+        
+        # More specific topic indicators
+        topic_patterns = {
+            'initial_discussion': ['first', 'initial', 'start', 'begin', 'intro', 'new', 'announcement'],
+            'technical_details': ['specs', 'specification', 'technical', 'measurement', 'performance', 'test', 'data'],
+            'user_experience': ['experience', 'review', 'tried', 'using', 'session', 'impression', 'feedback'],
+            'troubleshooting': ['problem', 'issue', 'fix', 'broken', 'error', 'help', 'solution', 'trouble'],
+            'modifications': ['mod', 'modification', 'upgrade', 'improve', 'custom', 'diy', 'build'],
+            'community_feedback': ['opinion', 'thoughts', 'discussion', 'community', 'group', 'social'],
+            'comparisons': ['compare', 'comparison', 'versus', 'vs', 'better', 'difference', 'alternative'],
+            'updates_news': ['update', 'news', 'announce', 'release', 'version', 'change', 'development']
+        }
+        
+        topic_scores = Counter()
+        for topic, keywords in topic_patterns.items():
+            score = sum(1 for keyword in keywords if keyword in all_content)
+            if score > 0:
+                topic_scores[topic] = score
+        
+        # Return the highest scoring topic, or 'general' if no clear topic
+        if topic_scores:
+            return topic_scores.most_common(1)[0][0].replace('_', ' ').title()
+        return 'General Discussion'
+    
+    def _has_significant_time_gap(self, current_post: Dict, next_posts: List[Dict]) -> bool:
+        """Check if there's a significant time gap indicating a natural break."""
+        # This is a simplified check - in a real implementation you'd parse dates
+        # For now, we'll use page gaps as a proxy for time gaps
+        current_page = current_post.get('page', 1)
+        if next_posts:
+            next_page = next_posts[0].get('page', 1)
+            return abs(next_page - current_page) > 2
+        return False
+    
+    def _has_activity_drop(self, recent_posts: List[Dict], upcoming_posts: List[Dict]) -> bool:
+        """Check if there's a drop in posting activity indicating a natural break."""
+        # Simple heuristic: check if there's a significant change in post length or author diversity
+        if not recent_posts or not upcoming_posts:
+            return False
+            
+        recent_authors = set(post.get('author', '') for post in recent_posts)
+        upcoming_authors = set(post.get('author', '') for post in upcoming_posts)
+        
+        # If author overlap is low, it might be a natural break
+        if recent_authors and upcoming_authors:
+            overlap = len(recent_authors & upcoming_authors) / max(len(recent_authors), len(upcoming_authors))
+            return overlap < 0.3
+            
+        return False
     
     def _extract_topic_keywords(self, phase_posts: List[Dict], topic: str) -> List[str]:
         """Extract key keywords from phase posts for search enhancement."""

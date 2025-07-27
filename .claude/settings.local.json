@@ -26,7 +26,8 @@
       "Bash(open \"http://localhost:8080\")",
       "Bash(open:*)",
       "Bash(uv add:*)",
-      "Bash(uv:*)"
+      "Bash(uv:*)",
+      "Bash(gtimeout:*)"
     ],
     "deny": []
   }

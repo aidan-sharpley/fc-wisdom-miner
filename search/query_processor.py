@@ -1,8 +1,8 @@
 """
 Query processing and response generation for Forum Wisdom Miner.
 
-This module handles the final stage of query processing, including
-LLM interaction and response formatting.
+This module handles query processing using HNSW-based semantic search
+and LLM interaction for accurate, verifiable responses.
 """
 
 import json

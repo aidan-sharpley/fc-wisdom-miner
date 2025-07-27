@@ -50,7 +50,7 @@ Core dependencies:
 
 ## Architecture Overview
 
-This is a modular forum analysis application with separate components for scraping, processing, embedding, search, and analytics. The architecture prioritizes performance, accuracy, and maintainability for consumer hardware with 8GB RAM.
+This is a streamlined forum analysis application with focused components for scraping, processing, embedding, search, and analytics. The architecture prioritizes simplicity, performance, and maintainability for consumer hardware with 8GB RAM.
 
 ### Core Modular Components
 
@@ -88,7 +88,7 @@ This is a modular forum analysis application with separate components for scrapi
 
 #### 5. **Thread Narrative Generator** (`analytics/thread_narrative.py`)
 - **Optimized Performance**: Reduced phases from 300 to ~15 maximum for M1 MacBook Air efficiency
-- **Enhanced Semantic Clustering**: Intelligent topic detection using content similarity analysis
+- **Intelligent Topic Detection**: Content-based topic detection using similarity analysis
 - **Comprehensive Topic Overviews**: Rich 1-2 sentence summaries with post ranges and direct links
 - **Aggressive Caching**: MD5-based prompt caching with persistent disk storage to avoid redundant LLM calls
 - **Memory-Efficient Processing**: Single-pass generation with intelligent phase grouping
@@ -98,10 +98,10 @@ This is a modular forum analysis application with separate components for scrapi
 - **Verifiable Claims**: All narrative claims backed by specific post evidence
 
 #### 6. **Embedding System** (`embedding/embedding_manager.py`)
-- **Generic Processing**: No longer hardcoded to specific forum terminology - works with any domain
-- **Enhanced HyDE**: Better hypothetical document generation for technical queries
-- **Memory-Efficient Caching**: 150MB cache for 8GB systems
-- **Optimized Batch Processing**: Reduced batch sizes (8 vs 10) to prevent memory spikes
+- **Generic Processing**: Works with any forum domain without hardcoded terminology
+- **Efficient HyDE**: Hypothetical document generation for better technical query matching
+- **Memory-Efficient Caching**: 150MB cache optimized for 8GB systems
+- **Optimized Batch Processing**: Right-sized batches (8 items) to prevent memory spikes
 - **Performance Monitoring**: Detailed embedding generation statistics
 - **Progress Tracking**: Real-time progress bars for large datasets
 
@@ -323,7 +323,7 @@ configs/
 - **Analytical**: "Who posted most?", "How many posts?", "When was first post?" (with verifiable evidence)
 - **Thread Authorship**: "Who is the thread author?", "Who created this thread?", "Original poster?" (metadata-grounded)
 - **Positional**: "Who was the second user to post?", "First post author?" (with clickable links)
-- **Semantic**: "What are the best heating techniques?", "How do I fix vapor quality?" (hybrid search + LLM)
+- **Semantic**: "What are the best heating techniques?", "How do I fix vapor quality?" (vector search + LLM)
 - **Engagement**: "What's the highest rated post?", "Most popular content?" (with post evidence)
 - **Technical**: "What settings work best?", "Common configurations?" (generic extraction)
 - **Temporal**: "What changed over time?", "Recent developments?" (timeline analysis)

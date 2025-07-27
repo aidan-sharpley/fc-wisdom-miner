@@ -1,8 +1,9 @@
 """
-Forum Wisdom Miner - Modular Application
+Forum Wisdom Miner - Streamlined Application
 
-Enhanced forum thread analysis application with modular architecture
-for better analytical data extraction and conversational querying.
+Efficient forum thread analysis application with focused architecture
+for accurate analytical data extraction and conversational querying.
+Optimized for consumer hardware with 8GB RAM.
 """
 
 import logging
