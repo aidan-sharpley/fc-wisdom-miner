@@ -897,7 +897,7 @@
         <button type="button" id="delete-thread-btn" class="btn btn-danger btn-small" disabled>Delete</button>
       </div>
 
-      <div id="url-section" class="hidden">
+      <div id="url-section">
         <label for="url">Or enter new thread URL:</label>
         <input type="text" id="url" name="url" placeholder="https://example.com/thread/12345" />
       </div>
@@ -1180,9 +1180,11 @@
       // Update analytics dropdowns
       updateAllThreadSelections(threadKey);
       
-      // Only show summary and analytics sections when explicitly loaded through the chat interface
-      // Do NOT automatically load thread summaries or show analytics sections here
-      // This prevents premature display of analysis data when just selecting threads
+      // Show summary and analytics sections when thread is loaded (not just selected)
+      showSummarySection();
+      showAnalyticsSection();
+      loadThreadSummary(threadKey);
+      loadThreadAnalytics(threadKey);
     }
 
     function addChatMessage(type, content, isStreaming = false) {
@@ -1437,21 +1439,121 @@
         updateLoadButtonState(); // This will set the correct text
       }
     }
+
+    async function reprocessExistingThread(threadKey) {
+      if (!threadKey) {
+        alert("No thread selected for reprocessing");
+        return;
+      }
+
+      // Show processing interface
+      showStatusPanel();
+      updateProgress(0, "Starting thread reprocessing...");
+      
+      // Disable the load button during processing
+      loadThreadBtn.disabled = true;
+      loadThreadBtn.innerHTML = '<span>⏳</span> Reprocessing...';
+
+      try {
+        // Send request to reprocess thread
+        const payload = { 
+          prompt: "Reprocess this thread", // Required by backend
+          existing_thread: threadKey,
+          reprocess: true
+        };
+
+        const response = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText);
+        }
+
+        // Process the streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        updateProgress(1, "Reprocessing thread content...");
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          
+          // Process complete lines from buffer
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep last incomplete line
+          
+          for (const line of lines) {
+            if (line.startsWith('PROGRESS: ')) {
+              const progressMessage = line.substring(10);
+              
+              if (progressMessage.includes('Generating embeddings:')) {
+                updateProgress(2, "Regenerating embeddings...");
+              } else if (progressMessage.includes('Building search index:')) {
+                updateProgress(3, "Rebuilding search index...");
+              } else {
+                progressText.textContent = progressMessage;
+              }
+            } else if (line.trim()) {
+              // Look for reprocessing completion
+              if (line.includes('Thread reprocessed successfully!')) {
+                updateProgress(4, "Thread reprocessed successfully!");
+              }
+            }
+          }
+        }
+
+        // Show success message and load the reprocessed thread
+        showStatusMessage(`Thread '${threadKey}' reprocessed successfully!`, 'success');
+        
+        // Uncheck the reprocess checkbox
+        document.getElementById("reprocess").checked = false;
+        
+        // Auto-hide the status panel and load the thread
+        setTimeout(() => {
+          hideStatusPanel();
+          showChatInterface(threadKey);
+        }, 2000);
+
+      } catch (error) {
+        console.error('Error reprocessing thread:', error);
+        showStatusMessage(`Error: ${error.message}`, 'error');
+        
+        // Hide status panel after error
+        setTimeout(() => {
+          hideStatusPanel();
+        }, 5000);
+      } finally {
+        // Re-enable the load button
+        loadThreadBtn.disabled = false;
+        updateLoadButtonState(); // This will set the correct text
+      }
+    }
     
     function updateAllThreadSelections(selectedThread = null) {
       // Update button states
       deleteBtn.disabled = !selectedThread;
-      loadThreadBtn.disabled = !selectedThread;
+      loadThreadBtn.disabled = !selectedThread && !urlInput.value.trim();
       
       // Update UI visibility in setup section
       if (selectedThread) {
         reprocessSection.classList.remove('hidden');
-        urlSection.classList.add('hidden'); // Hide URL input when thread is selected
         loadThreadBtn.innerHTML = '<span>🔗</span> Load Thread';
       } else {
         reprocessSection.classList.add('hidden');
-        urlSection.classList.remove('hidden'); // Show URL input when no thread selected
-        loadThreadBtn.innerHTML = '<span>🔗</span> Process New Thread';
+        if (urlInput.value.trim()) {
+          loadThreadBtn.innerHTML = '<span>🔗</span> Process New Thread';
+        } else {
+          loadThreadBtn.innerHTML = '<span>🔗</span> Load Thread';
+        }
       }
     }
 
@@ -1506,6 +1608,10 @@
     // Thread selection in setup
     threadSelect.addEventListener("change", () => {
       const selected = threadSelect.value;
+      if (selected) {
+        // Clear URL input when thread is selected
+        urlInput.value = '';
+      }
       updateAllThreadSelections(selected);
       updateLoadButtonState();
     });
@@ -1527,8 +1633,13 @@
       const reprocess = document.getElementById("reprocess").checked;
       
       if (selectedThread) {
-        // Load existing thread
-        showChatInterface(selectedThread);
+        if (reprocess) {
+          // Reprocess existing thread
+          await reprocessExistingThread(selectedThread);
+        } else {
+          // Load existing thread
+          showChatInterface(selectedThread);
+        }
       } else if (url) {
         // Process new thread from URL
         await processNewThreadFromUrl(url, reprocess);
@@ -1691,14 +1802,6 @@
         
         // Complete progress
         updateProgress(4, "Analysis complete!");
-        
-        // Now that we have a successful interaction, show summary and analytics
-        if (currentSelectedThread) {
-          showSummarySection();
-          showAnalyticsSection();
-          loadThreadSummary(currentSelectedThread);
-          loadThreadAnalytics(currentSelectedThread);
-        }
         
         // Refresh question history
         setTimeout(() => {
@@ -2492,6 +2595,9 @@
         showThreadSetup();
         updateLoadButtonState();
       }
+      
+      // Ensure URL section is always visible at startup
+      urlSection.classList.remove('hidden');
       
       // Summary and analytics sections will only be shown after successful chat interaction
       
