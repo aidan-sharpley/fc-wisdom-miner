@@ -1,8 +1,3 @@
-# Foreward by human engineer
-I was inspired to start this project when reading a public forum that had pretty minimal and tedious search capabilities. I wanted to explore what large language models can actually do—separate from the large-scale cloud services and interfaces built around tools like ChatGPT. As a test case, I focused on a real-world challenge: **how difficult it is to find specific, valuable info buried in long forum threads**.
-
-I used chatgpt, claude, gemini, deepseek, and qwen models to engineer this mvp. This was a lot of fun and I'd say the experiment did return an answer. Check out the screenshots below to see the app in action! Any advice given by the app is purely for educaton / entertainment.
-
 # Intelligent Forum Analysis & Search Engine
 
 This is a forum analysis application that uses local LLMs to provide "accurate", data-driven insights and semantic search for any forum thread.
@@ -13,6 +8,11 @@ Designed to run efficiently on consumer hardware (8GB RAM), this Flask-based too
 - **Semantic questions** (e.g., "What are the best heating techniques?").
 
 The system provides **verifiable, fact-checked answers** with clickable post evidence for analytical queries and context-aware responses for semantic queries. **Thread narratives with enhanced topic overviews are automatically generated** using semantic clustering, providing immediate comprehensive insights with supporting evidence. All claims are backed by specific post links for full traceability.
+
+## Foreward by human engineer
+I was inspired to start this project when reading a public forum that had pretty minimal and tedious search capabilities. I wanted to explore what large language models can actually do—separate from the large-scale cloud services and interfaces built around tools like ChatGPT. As a test case, I focused on a real-world challenge: **how difficult it is to find specific, valuable info buried in long forum threads**.
+
+I used chatgpt, claude, gemini, deepseek, and qwen models to engineer this mvp. This was a lot of fun and I'd say the experiment did return an answer. Check out the screenshots below to see the app in action! Any advice given by the app is purely for educaton / entertainment.
 
 ## ✨ Key Features
 
