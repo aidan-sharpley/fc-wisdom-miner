@@ -987,6 +987,19 @@
             <div id="contributors-content"></div>
           </div>
         </div>
+        
+        <!-- High Reaction Posts Section -->
+        <div id="high-reaction-posts" style="margin-bottom: 2em;">
+          <h4 style="color: var(--secondary-color); margin-bottom: 0.8em;">Top Reaction Posts</h4>
+          <div id="high-reaction-content"></div>
+        </div>
+        
+        <!-- Topic Evolution Section -->
+        <div id="topic-evolution" style="margin-bottom: 2em;">
+          <h4 style="color: var(--secondary-color); margin-bottom: 0.8em;">Topic Evolution</h4>
+          <div id="topic-evolution-content"></div>
+        </div>
+        
         <div id="analytics-summary" style="border-top: 1px solid #dee2e6; padding-top: 1.5em;">
           <h3 style="color: var(--primary-color); margin-bottom: 1em;">Thread Analytics</h3>
           <div id="analytics-overview" class="analytics-grid"></div>
@@ -1104,6 +1117,12 @@
     const contributorsContent = document.getElementById("contributors-content");
     const analyticsSummary = document.getElementById("analytics-summary");
     const analyticsOverview = document.getElementById("analytics-overview");
+    
+    // New elements for additional data
+    const highReactionPosts = document.getElementById("high-reaction-posts");
+    const highReactionContent = document.getElementById("high-reaction-content");
+    const topicEvolution = document.getElementById("topic-evolution");
+    const topicEvolutionContent = document.getElementById("topic-evolution-content");
     
     // Chart instances
     let participantsChart = null;
@@ -2187,9 +2206,45 @@
       const overview = narrativeData.thread_overview || 'Thread overview not available.';
       overviewText.textContent = overview;
       
-      // Display conversation phases
+      // Display conversation phases with narrative summaries
+      const narrativeSections = narrativeData.narrative_sections || [];
       const phases = narrativeData.conversation_phases || [];
-      if (phases.length > 0) {
+      
+      if (narrativeSections.length > 0) {
+        let phasesHtml = '';
+        narrativeSections.forEach((section, index) => {
+          const phase = section.phase_summary || {};
+          const narrativeText = section.narrative_text || '';
+          const topicTitle = section.topic_title || phase.topic || 'Unknown Topic';
+          const firstPostUrl = section.first_post_url || '';
+          const highlights = section.highlights || [];
+          const engagementSummary = section.engagement_summary || '';
+          
+          phasesHtml += `
+            <div style="background: #f8f9fa; border-radius: 6px; padding: 1.5em; margin-bottom: 1em; border-left: 4px solid var(--primary-color);">
+              <div style="margin-bottom: 0.8em;">
+                <strong style="font-size: 1.1em; color: var(--secondary-color);">
+                  ${firstPostUrl ? `<a href="${firstPostUrl}" target="_blank" style="color: var(--primary-color); text-decoration: none;">${topicTitle}</a>` : topicTitle}
+                </strong>
+                <span style="color: #6c757d; margin-left: 8px;">(${phase.page_range || ''}) - ${phase.post_count || 0} posts</span>
+              </div>
+              ${narrativeText ? `<div style="line-height: 1.6; margin-bottom: 0.8em;">${narrativeText}</div>` : ''}
+              ${highlights.length > 0 ? `
+                <div style="margin-bottom: 0.8em;">
+                  <strong style="font-size: 0.9em; color: var(--secondary-color);">Key Highlights:</strong>
+                  <ul style="margin: 0.5em 0; padding-left: 1.5em; font-size: 0.9em;">
+                    ${highlights.slice(0, 3).map(highlight => `<li style="margin-bottom: 0.2em;">${highlight}</li>`).join('')}
+                  </ul>
+                </div>
+              ` : ''}
+              ${engagementSummary ? `<div style="font-size: 0.9em; color: #6c757d; margin-bottom: 0.5em;">${engagementSummary}</div>` : ''}
+              <small style="color: #6c757d;">Key participants: ${Object.keys(phase.key_participants || {}).join(', ')}</small>
+            </div>
+          `;
+        });
+        phasesContent.innerHTML = phasesHtml;
+      } else if (phases.length > 0) {
+        // Fallback to basic phase display if narrative sections not available
         let phasesHtml = '';
         phases.forEach((phase, index) => {
           phasesHtml += `
@@ -2233,6 +2288,8 @@
       const participants = analyticsData.participants || {};
       const content = analyticsData.content || {};
       const topics = analyticsData.topics || {};
+      const interaction = analyticsData.interaction || {};
+      const temporal = analyticsData.temporal || {};
       
       // Extract the correct values from the actual data structure
       const totalPosts = metadata.total_posts || 0;
@@ -2241,8 +2298,12 @@
       const primaryKeywords = topics.primary_keywords || [];
       const keyTopicsCount = primaryKeywords.length || 0;
       
-      // Also check for potential language info in content analysis
+      // Additional analytics data
       const language = content.language_analysis?.primary_language || 'English';
+      const avgPostLength = content.avg_post_length || 0;
+      const totalReactions = interaction.total_reactions || interaction.total_upvotes || 0;
+      const threadDuration = temporal.thread_duration_days || 0;
+      const mostActiveDay = temporal.most_active_day || 'Unknown';
       
       let analyticsHtml = `
         <div class="analytics-item">
@@ -2261,9 +2322,113 @@
           <div class="analytics-number">${keyTopicsCount}</div>
           <div class="analytics-label">Key Topics</div>
         </div>
+        <div class="analytics-item">
+          <div class="analytics-number">${Math.round(avgPostLength)}</div>
+          <div class="analytics-label">Avg Post Length</div>
+        </div>
+        <div class="analytics-item">
+          <div class="analytics-number">${totalReactions}</div>
+          <div class="analytics-label">Total Reactions</div>
+        </div>
+        <div class="analytics-item">
+          <div class="analytics-number">${threadDuration}</div>
+          <div class="analytics-label">Duration (Days)</div>
+        </div>
+        <div class="analytics-item">
+          <div class="analytics-number">${language}</div>
+          <div class="analytics-label">Language</div>
+        </div>
       `;
       
+      // Add primary keywords if available
+      if (primaryKeywords.length > 0) {
+        analyticsHtml += `
+          <div class="analytics-item" style="grid-column: span 2;">
+            <div style="font-weight: 600; color: var(--secondary-color); margin-bottom: 0.5em;">Primary Keywords</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${primaryKeywords.slice(0, 8).map(keyword => 
+                `<span style="background: var(--primary-color); color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${keyword}</span>`
+              ).join('')}
+            </div>
+          </div>
+        `;
+      }
+      
       analyticsOverview.innerHTML = analyticsHtml;
+    }
+
+    function displayHighReactionPosts(highReactionPostsData) {
+      if (!highReactionPostsData || highReactionPostsData.length === 0) {
+        highReactionContent.innerHTML = '<p style="color: #6c757d; font-style: italic;">No high reaction posts found.</p>';
+        return;
+      }
+      
+      let postsHtml = '';
+      highReactionPostsData.slice(0, 3).forEach(post => {
+        const engagementScore = post.engagement_score || 0;
+        const author = post.author || 'Unknown';
+        const date = post.date || '';
+        const url = post.url || '';
+        const content = post.content || '';
+        const excerpt = content.length > 200 ? content.substring(0, 200) + '...' : content;
+        
+        postsHtml += `
+          <div style="background: #f8f9fa; border-radius: 6px; padding: 1em; margin-bottom: 1em; border-left: 4px solid var(--success-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5em;">
+              <strong style="color: var(--secondary-color);">
+                ${url ? `<a href="${url}" target="_blank" style="color: var(--primary-color); text-decoration: none;">${author}</a>` : author}
+              </strong>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="background: var(--success-color); color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
+                  🔥 ${engagementScore} reactions
+                </span>
+                <small style="color: #6c757d;">${date}</small>
+              </div>
+            </div>
+            <div style="color: #333; line-height: 1.5;">${excerpt}</div>
+          </div>
+        `;
+      });
+      
+      highReactionContent.innerHTML = postsHtml;
+    }
+
+    function displayTopicEvolution(topicEvolutionData) {
+      if (!topicEvolutionData || Object.keys(topicEvolutionData).length === 0) {
+        topicEvolutionContent.innerHTML = '<p style="color: #6c757d; font-style: italic;">No topic evolution data available.</p>';
+        return;
+      }
+      
+      // Convert topic evolution object to array and sort by page
+      const evolutionArray = Object.entries(topicEvolutionData)
+        .map(([page, topics]) => ({ page: parseInt(page), topics }))
+        .sort((a, b) => a.page - b.page)
+        .slice(0, 10); // Show first 10 pages
+      
+      if (evolutionArray.length === 0) {
+        topicEvolutionContent.innerHTML = '<p style="color: #6c757d; font-style: italic;">No topic evolution found.</p>';
+        return;
+      }
+      
+      let evolutionHtml = '<div style="display: flex; flex-wrap: wrap; gap: 1em;">';
+      
+      evolutionArray.forEach(({ page, topics }) => {
+        const topicList = Array.isArray(topics) ? topics.slice(0, 3) : []; // Show top 3 topics per page
+        
+        if (topicList.length > 0) {
+          evolutionHtml += `
+            <div style="background: #f8f9fa; border-radius: 6px; padding: 1em; min-width: 200px; border-left: 4px solid var(--warning-color);">
+              <div style="font-weight: 600; color: var(--secondary-color); margin-bottom: 0.5em;">Page ${page}</div>
+              <div style="font-size: 14px;">
+                ${topicList.map(topic => `<span style="background: #e9ecef; padding: 2px 6px; border-radius: 8px; margin-right: 4px; font-size: 12px;">${topic}</span>`).join('')}
+              </div>
+            </div>
+          `;
+        }
+      });
+      
+      evolutionHtml += '</div>';
+      topicEvolutionContent.innerHTML = evolutionHtml;
     }
 
     async function loadThreadSummary(threadKey) {
@@ -2282,6 +2447,16 @@
         // Display narrative summary
         if (summaryData.narrative) {
           displayThreadNarrative(summaryData.narrative);
+          
+          // Display high reaction posts
+          if (summaryData.narrative.high_reaction_posts) {
+            displayHighReactionPosts(summaryData.narrative.high_reaction_posts);
+          }
+          
+          // Display topic evolution
+          if (summaryData.narrative.topic_evolution) {
+            displayTopicEvolution(summaryData.narrative.topic_evolution);
+          }
         }
         
         // Display analytics summary  
