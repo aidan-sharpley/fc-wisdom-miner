@@ -1152,9 +1152,15 @@
       currentSelectedThread = null;
       saveCurrentThread(null);
       
-      // Hide summary and analytics sections when returning to thread selection
+      // Always hide summary and analytics sections when returning to thread selection
       hideSummarySection();
       hideAnalyticsSection();
+      
+      // Clear any displayed summary content to prevent stale data
+      summaryContent.classList.add('hidden');
+      summaryNoData.classList.remove('hidden');
+      analyticsCharts.classList.add('hidden');
+      analyticsNoData.classList.remove('hidden');
     }
 
     function showChatInterface(threadKey) {
@@ -1173,12 +1179,10 @@
       
       // Update analytics dropdowns
       updateAllThreadSelections(threadKey);
-      loadThreadSummary(threadKey);
       
-      // Show summary and analytics sections when thread is selected
-      showSummarySection();
-      showAnalyticsSection();
-      loadThreadAnalytics(threadKey);
+      // Only show summary and analytics sections when explicitly loaded through the chat interface
+      // Do NOT automatically load thread summaries or show analytics sections here
+      // This prevents premature display of analysis data when just selecting threads
     }
 
     function addChatMessage(type, content, isStreaming = false) {
@@ -1325,6 +1329,115 @@
 
     // ==================== Thread Management Functions ====================
     
+    async function processNewThreadFromUrl(url, reprocess = false) {
+      if (!url || !url.trim()) {
+        alert("Please enter a valid thread URL");
+        return;
+      }
+
+      // Show processing interface
+      showStatusPanel();
+      updateProgress(0, "Starting thread processing...");
+      
+      // Disable the load button during processing
+      loadThreadBtn.disabled = true;
+      loadThreadBtn.innerHTML = '<span>⏳</span> Processing...';
+
+      try {
+        // Send request to process thread
+        const payload = { 
+          prompt: "Process this thread", // Required by backend
+          url: url.trim(),
+          reprocess: reprocess
+        };
+
+        const response = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText);
+        }
+
+        // Process the streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let extractedThreadKey = null;
+
+        updateProgress(1, "Processing thread content...");
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          
+          // Process complete lines from buffer
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep last incomplete line
+          
+          for (const line of lines) {
+            if (line.startsWith('PROGRESS: ')) {
+              const progressMessage = line.substring(10);
+              
+              if (progressMessage.includes('Generating embeddings:')) {
+                updateProgress(2, "Generating embeddings...");
+              } else if (progressMessage.includes('Building search index:')) {
+                updateProgress(3, "Building search index...");
+              } else {
+                progressText.textContent = progressMessage;
+              }
+            } else if (line.trim()) {
+              // Look for thread key in response
+              const threadKeyMatch = line.match(/Thread processed: ([a-zA-Z0-9_-]+)/);
+              if (threadKeyMatch) {
+                extractedThreadKey = threadKeyMatch[1];
+                updateProgress(4, "Thread processed successfully!");
+              }
+            }
+          }
+        }
+
+        // If we got a thread key, add it to the interface and select it
+        if (extractedThreadKey) {
+          addThreadToAllSelections(extractedThreadKey);
+          threadSelect.value = extractedThreadKey;
+          updateAllThreadSelections(extractedThreadKey);
+          
+          // Clear the URL input since we now have a thread
+          urlInput.value = '';
+          
+          // Show success message
+          showStatusMessage(`Thread '${extractedThreadKey}' created successfully! You can now load it.`, 'success');
+          
+          // Auto-hide the status panel after a delay
+          setTimeout(() => {
+            hideStatusPanel();
+          }, 3000);
+        } else {
+          throw new Error("Thread processing completed but no thread key was returned");
+        }
+
+      } catch (error) {
+        console.error('Error processing new thread:', error);
+        showStatusMessage(`Error: ${error.message}`, 'error');
+        
+        // Hide status panel after error
+        setTimeout(() => {
+          hideStatusPanel();
+        }, 5000);
+      } finally {
+        // Re-enable the load button
+        loadThreadBtn.disabled = false;
+        updateLoadButtonState(); // This will set the correct text
+      }
+    }
+    
     function updateAllThreadSelections(selectedThread = null) {
       // Update button states
       deleteBtn.disabled = !selectedThread;
@@ -1350,8 +1463,10 @@
       // Update button text based on what's selected
       if (hasThread) {
         loadThreadBtn.innerHTML = '<span>🔗</span> Load Thread';
-      } else {
+      } else if (hasUrl) {
         loadThreadBtn.innerHTML = '<span>🔗</span> Process New Thread';
+      } else {
+        loadThreadBtn.innerHTML = '<span>🔗</span> Load Thread';
       }
     }
 
@@ -1409,12 +1524,14 @@
     loadThreadBtn.addEventListener("click", async () => {
       const selectedThread = threadSelect.value.trim();
       const url = urlInput.value.trim();
+      const reprocess = document.getElementById("reprocess").checked;
       
       if (selectedThread) {
         // Load existing thread
         showChatInterface(selectedThread);
       } else if (url) {
-        alert("New URL processing is not available. Threads can only be reprocessed once created.");
+        // Process new thread from URL
+        await processNewThreadFromUrl(url, reprocess);
       }
     });
 
@@ -1574,6 +1691,14 @@
         
         // Complete progress
         updateProgress(4, "Analysis complete!");
+        
+        // Now that we have a successful interaction, show summary and analytics
+        if (currentSelectedThread) {
+          showSummarySection();
+          showAnalyticsSection();
+          loadThreadSummary(currentSelectedThread);
+          loadThreadAnalytics(currentSelectedThread);
+        }
         
         // Refresh question history
         setTimeout(() => {
@@ -2081,10 +2206,8 @@
       console.log('Thread selection changed to:', selected);
       updateAllThreadSelections(selected);
       
-      // Load summary automatically when thread is selected
-      if (selected) {
-        loadThreadSummary(selected);
-      }
+      // Do NOT automatically load thread summaries when thread is just selected
+      // Summary and analytics will only be shown after explicit chat interaction
     }
 
     threadSelect.addEventListener("change", () => handleThreadSelectionChange(threadSelect));
@@ -2144,7 +2267,7 @@
       hideSummarySection();
     });
 
-    // Hide both sections by default - they will be shown when thread is selected
+    // Hide both sections by default - they will only be shown after successful chat interaction
     hideSummarySection();
     hideAnalyticsSection();
 
@@ -2370,7 +2493,7 @@
         updateLoadButtonState();
       }
       
-      // Sections will be shown when a thread is selected
+      // Summary and analytics sections will only be shown after successful chat interaction
       
       console.log('Forum Analyst AI Chat Interface initialized');
       console.log('Available threads:', availableThreads);
