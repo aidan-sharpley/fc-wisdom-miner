@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 
 from analytics.thread_analyzer import ThreadAnalyzer
 from analytics.thread_narrative import ThreadNarrative
+from analytics.topic_indexer import TopicIndexer
 from config.settings import THREADS_DIR
 from embedding.embedding_manager import EmbeddingManager
 from embedding.hnsw_index import HNSWIndex
@@ -20,6 +21,7 @@ from scraping.forum_scraper import ForumScraper
 from config.platform_config import get_platform_config, detect_forum_platform
 from utils.file_utils import atomic_write_json, get_thread_dir, safe_read_json
 from utils.helpers import normalize_url
+from utils.topic_cache import TopicIndexCache
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,8 @@ class ThreadProcessor:
         self.scraper = None
         self.post_processor = PostProcessor()
         self.embedding_manager = EmbeddingManager()
+        self.topic_indexer = TopicIndexer()
+        self.topic_cache = TopicIndexCache()
 
         # Statistics
         self.stats = {
@@ -101,13 +105,19 @@ class ThreadProcessor:
             if not processed_posts:
                 raise ValueError("No valid posts after processing")
 
-            # Step 4: Generate embeddings
+            # Step 4: Generate topic index
+            logger.info(f"Creating topic index for {len(processed_posts)} posts")
+            if progress_callback:
+                progress_callback("Creating topic index...")
+            topic_index = self._generate_topic_index(processed_posts, thread_key)
+
+            # Step 5: Generate embeddings
             logger.info(f"Generating embeddings for {len(processed_posts)} posts")
             if progress_callback:
                 progress_callback(f"Generating embeddings for {len(processed_posts)} posts...")
             embeddings = self._generate_embeddings(processed_posts, progress_callback)
 
-            # Step 5: Build/update search index
+            # Step 6: Build/update search index
             logger.info("Building search index")
             if progress_callback:
                 progress_callback("Building search index...")
@@ -115,7 +125,7 @@ class ThreadProcessor:
                 thread_dir, processed_posts, embeddings, progress_callback
             )
 
-            # Step 6: Generate comprehensive analytics and narrative summary
+            # Step 7: Generate comprehensive analytics and narrative summary
             logger.info("Generating comprehensive analytics and narrative summary")
             if progress_callback:
                 progress_callback("Generating summary and analytics...")
@@ -124,7 +134,7 @@ class ThreadProcessor:
                 thread_dir, processed_posts
             )
 
-            # Step 7: Save processed data
+            # Step 8: Save processed data
             logger.info("Saving processed thread data")
             processing_results = self._save_thread_data(
                 thread_dir,
@@ -230,13 +240,19 @@ class ThreadProcessor:
             if not processed_posts:
                 raise ValueError("No valid posts after processing HTML content")
 
-            # Step 3: Generate embeddings with current embedding strategy
+            # Step 3: Generate topic index
+            logger.info(f"Creating topic index for {len(processed_posts)} posts")
+            if progress_callback:
+                progress_callback("Creating topic index...")
+            topic_index = self._generate_topic_index(processed_posts, thread_key)
+
+            # Step 4: Generate embeddings with current embedding strategy
             logger.info(f"Generating embeddings for {len(processed_posts)} posts")
             if progress_callback:
                 progress_callback(f"Regenerating embeddings for {len(processed_posts)} posts...")
             embeddings = self._generate_embeddings(processed_posts, progress_callback)
 
-            # Step 4: Build/update search index
+            # Step 5: Build/update search index
             logger.info("Rebuilding search index")
             if progress_callback:
                 progress_callback("Rebuilding search index...")
@@ -244,7 +260,7 @@ class ThreadProcessor:
                 thread_dir, processed_posts, embeddings, progress_callback
             )
 
-            # Step 5: Generate comprehensive analytics and narrative summary
+            # Step 6: Generate comprehensive analytics and narrative summary
             logger.info("Generating comprehensive analytics and narrative summary")
             if progress_callback:
                 progress_callback("Generating summary and analytics...")
@@ -253,7 +269,7 @@ class ThreadProcessor:
                 thread_dir, processed_posts
             )
 
-            # Step 6: Save reprocessed data
+            # Step 7: Save reprocessed data
             logger.info("Saving reprocessed thread data")
 
             # Load existing metadata to preserve scrape info
@@ -533,6 +549,43 @@ class ThreadProcessor:
 
         logger.info(f"Generated {len(embeddings)} embeddings")
         return embeddings
+
+    def _generate_topic_index(self, posts: List[Dict], thread_key: str) -> Dict:
+        """Generate topic index for thread posts."""
+        try:
+            # Create topic index using the indexer
+            topic_index = self.topic_indexer.create_thread_topic_index(posts)
+            
+            # Store in cache for fast retrieval
+            metadata = {
+                "created_at": time.time(),
+                "posts_analyzed": len(posts),
+                "topics_found": len(topic_index.get('topics', {})),
+                "total_matches": topic_index.get('thread_stats', {}).get('total_topic_matches', 0)
+            }
+            
+            success = self.topic_cache.store_topic_index(thread_key, topic_index, metadata)
+            
+            if success:
+                logger.info(f"Topic index created and cached for {thread_key}: "
+                          f"{metadata['topics_found']} topics, {metadata['total_matches']} matches")
+            else:
+                logger.warning(f"Topic index created but caching failed for {thread_key}")
+            
+            return topic_index
+            
+        except Exception as e:
+            logger.error(f"Error generating topic index for {thread_key}: {e}")
+            # Return empty index on failure
+            return {
+                'schema_version': '1.0',
+                'thread_stats': {
+                    'total_posts': len(posts),
+                    'topics_found': 0,
+                    'total_topic_matches': 0
+                },
+                'topics': {}
+            }
 
     def _build_search_index(
         self, thread_dir: str, posts: List[Dict], embeddings: List, progress_callback=None

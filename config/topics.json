@@ -1,0 +1,167 @@
+{
+  "schema_version": "1.0",
+  "description": "Topic categorization schema for forum domain analysis",
+  "topics": {
+    "ball_materials": {
+      "topic_id": "ball_materials",
+      "display_name": "Ball Materials",
+      "keywords": [
+        "spheres", "balls", "ruby", "zirconia", "glass", "steel", "ceramic",
+        "mesh", "packing", "beads", "3mm", "4mm", "6mm", "material",
+        "thermal mass", "heat retention", "conductivity"
+      ],
+      "description": "Details about the type and use of ball or mesh packing materials for heat retention and distribution.",
+      "category": "hardware",
+      "weight": 1.0
+    },
+    "flare_settings": {
+      "topic_id": "flare_settings",
+      "display_name": "Flare Settings & Configuration",
+      "keywords": [
+        "flare", "settings", "temperature", "flame", "torch", "lighter",
+        "heat cycle", "heating", "cooldown", "technique", "method",
+        "timing", "clicks", "auto-off", "manual", "BTU"
+      ],
+      "description": "Discussion of flare settings, heating techniques, and temperature control methods.",
+      "category": "technique",
+      "weight": 1.0
+    },
+    "device_versions": {
+      "topic_id": "device_versions",
+      "display_name": "Device Versions & Models",
+      "keywords": [
+        "TA4", "TA3", "thermal accumulator", "anvil", "version", "model",
+        "generation", "upgrade", "revision", "release", "new", "old",
+        "comparison", "differences", "specs", "specifications"
+      ],
+      "description": "Information about different device versions, models, and their specifications.",
+      "category": "hardware",
+      "weight": 1.0
+    },
+    "maintenance": {
+      "topic_id": "maintenance",
+      "display_name": "Maintenance & Cleaning",
+      "keywords": [
+        "cleaning", "maintenance", "iso", "alcohol", "cotton", "swab",
+        "dirty", "clean", "residue", "buildup", "qtip", "torch clean",
+        "burnoff", "seasoning", "care", "upkeep"
+      ],
+      "description": "Discussion of device maintenance, cleaning procedures, and care instructions.",
+      "category": "maintenance",
+      "weight": 1.0
+    },
+    "vapor_quality": {
+      "topic_id": "vapor_quality",
+      "display_name": "Vapor Quality & Performance",
+      "keywords": [
+        "vapor", "clouds", "density", "quality", "flavor", "taste",
+        "performance", "efficiency", "extraction", "harsh", "smooth",
+        "thick", "thin", "production", "output"
+      ],
+      "description": "Discussion of vapor quality, density, flavor, and overall performance characteristics.",
+      "category": "performance",
+      "weight": 1.0
+    },
+    "troubleshooting": {
+      "topic_id": "troubleshooting",
+      "display_name": "Troubleshooting & Issues",
+      "keywords": [
+        "problem", "issue", "trouble", "not working", "broken", "fix",
+        "help", "wrong", "error", "stuck", "loose", "tight", "hot",
+        "cool", "uneven", "combustion", "charring"
+      ],
+      "description": "Problem-solving discussions, troubleshooting help, and issue resolution.",
+      "category": "support",
+      "weight": 1.2
+    },
+    "accessories": {
+      "topic_id": "accessories",
+      "display_name": "Accessories & Add-ons",
+      "keywords": [
+        "case", "stand", "holder", "magnet", "magnetic", "dock",
+        "storage", "container", "accessories", "add-on", "upgrade",
+        "mod", "modification", "custom", "aftermarket"
+      ],
+      "description": "Discussion of accessories, add-ons, modifications, and aftermarket products.",
+      "category": "accessories",
+      "weight": 0.8
+    },
+    "purchasing": {
+      "topic_id": "purchasing",
+      "display_name": "Purchasing & Availability",
+      "keywords": [
+        "buy", "purchase", "order", "price", "cost", "sale", "discount",
+        "shipping", "delivery", "stock", "available", "sold out",
+        "restock", "vendor", "seller", "dealer", "warranty"
+      ],
+      "description": "Information about purchasing, availability, pricing, and vendor discussions.",
+      "category": "commerce",
+      "weight": 0.6
+    },
+    "comparisons": {
+      "topic_id": "comparisons",
+      "display_name": "Device Comparisons",
+      "keywords": [
+        "vs", "versus", "compare", "comparison", "better", "worse",
+        "dynavap", "tinymight", "mighty", "volcano", "alternative",
+        "similar", "different", "like", "unlike"
+      ],
+      "description": "Comparisons between different devices, brands, and vaporizer types.",
+      "category": "analysis",
+      "weight": 0.9
+    },
+    "technique_tips": {
+      "topic_id": "technique_tips",
+      "display_name": "Technique & Tips",
+      "keywords": [
+        "tip", "trick", "technique", "method", "way", "how to",
+        "advice", "recommendation", "best practice", "pro tip",
+        "secret", "hidden", "optimize", "improve", "better"
+      ],
+      "description": "User tips, techniques, best practices, and optimization advice.",
+      "category": "technique",
+      "weight": 1.1
+    }
+  },
+  "categories": {
+    "hardware": {
+      "display_name": "Hardware & Components",
+      "description": "Physical device components and materials"
+    },
+    "technique": {
+      "display_name": "Usage Techniques",
+      "description": "Methods and techniques for optimal usage"
+    },
+    "maintenance": {
+      "display_name": "Maintenance & Care",
+      "description": "Cleaning, maintenance, and device care"
+    },
+    "performance": {
+      "display_name": "Performance & Quality",
+      "description": "Vapor quality and device performance"
+    },
+    "support": {
+      "display_name": "Support & Troubleshooting",
+      "description": "Problem solving and technical support"
+    },
+    "accessories": {
+      "display_name": "Accessories & Mods",
+      "description": "Additional accessories and modifications"
+    },
+    "commerce": {
+      "display_name": "Purchasing & Commerce",
+      "description": "Buying, selling, and commercial discussions"
+    },
+    "analysis": {
+      "display_name": "Analysis & Comparisons",
+      "description": "Comparative analysis and reviews"
+    }
+  },
+  "configuration": {
+    "min_keyword_matches": 2,
+    "min_relevance_score": 0.3,
+    "max_excerpt_length": 200,
+    "enable_fuzzy_matching": true,
+    "enable_semantic_scoring": false
+  }
+}

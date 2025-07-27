@@ -834,6 +834,130 @@ def get_stats():
         return jsonify({'error': str(e)}), 500
 
 
+# -------------------- Topic Index API Endpoints --------------------
+@app.route('/thread/<thread_key>/topics', methods=['GET'])
+def get_thread_topics(thread_key: str):
+    """Get topic index for a specific thread."""
+    try:
+        from utils.topic_cache import TopicIndexCache
+        
+        topic_cache = TopicIndexCache()
+        
+        if not topic_cache.has_topic_index(thread_key):
+            return jsonify({'error': 'Topic index not found for this thread'}), 404
+        
+        topic_index = topic_cache.load_topic_index(thread_key)
+        if not topic_index:
+            return jsonify({'error': 'Failed to load topic index'}), 500
+        
+        return jsonify(topic_index)
+        
+    except Exception as e:
+        logger.error(f'Error getting topics for thread {thread_key}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/thread/<thread_key>/topics/<topic_id>', methods=['GET'])
+def get_thread_topic_matches(thread_key: str, topic_id: str):
+    """Get specific topic matches for a thread."""
+    try:
+        from utils.topic_cache import TopicIndexCache
+        
+        topic_cache = TopicIndexCache()
+        matches = topic_cache.get_topic_matches_for_thread(thread_key, topic_id)
+        
+        if not matches:
+            return jsonify({'matches': [], 'message': 'No matches found for this topic'}), 200
+        
+        return jsonify({
+            'topic_id': topic_id,
+            'thread_key': thread_key,
+            'match_count': len(matches),
+            'matches': matches
+        })
+        
+    except Exception as e:
+        logger.error(f'Error getting topic {topic_id} matches for thread {thread_key}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/thread/<thread_key>/topics/summary', methods=['GET'])
+def get_thread_topic_summary(thread_key: str):
+    """Get topic summary for a thread."""
+    try:
+        from utils.topic_cache import TopicIndexCache
+        
+        topic_cache = TopicIndexCache()
+        summary = topic_cache.get_thread_topic_summary(thread_key)
+        
+        if not summary:
+            return jsonify({'error': 'Topic summary not found for this thread'}), 404
+        
+        return jsonify(summary)
+        
+    except Exception as e:
+        logger.error(f'Error getting topic summary for thread {thread_key}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/topics/search/<topic_id>', methods=['GET'])
+def search_topic_across_threads(topic_id: str):
+    """Search for a topic across all threads."""
+    try:
+        from utils.topic_cache import TopicIndexCache
+        
+        topic_cache = TopicIndexCache()
+        limit = request.args.get('limit', 50, type=int)
+        
+        matches = topic_cache.search_topics_across_threads(topic_id, limit)
+        
+        return jsonify({
+            'topic_id': topic_id,
+            'total_matches': len(matches),
+            'limit': limit,
+            'matches': matches
+        })
+        
+    except Exception as e:
+        logger.error(f'Error searching topic {topic_id} across threads: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/topics/available', methods=['GET'])
+def get_available_topics():
+    """Get all available topic definitions."""
+    try:
+        from analytics.topic_indexer import TopicIndexer
+        
+        topic_indexer = TopicIndexer()
+        topics = topic_indexer.get_available_topics()
+        
+        return jsonify({
+            'total_topics': len(topics),
+            'topics': topics
+        })
+        
+    except Exception as e:
+        logger.error(f'Error getting available topics: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/topics/cache/stats', methods=['GET'])
+def get_topic_cache_stats():
+    """Get topic cache statistics."""
+    try:
+        from utils.topic_cache import TopicIndexCache
+        
+        topic_cache = TopicIndexCache()
+        stats = topic_cache.get_cache_stats()
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f'Error getting topic cache stats: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
 # -------------------- Error Handlers --------------------
 @app.errorhandler(404)
 def not_found(error):

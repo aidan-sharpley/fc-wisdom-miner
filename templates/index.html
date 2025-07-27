@@ -1010,7 +1010,7 @@
         Loading analytics data...
       </div>
       <div id="analytics-no-data" class="no-data-message">
-        Select a thread from the dropdown above to view detailed analytics and visualizations.
+        Analytics will appear automatically when you select and load a thread.
       </div>
       <div id="analytics-charts" class="charts-container hidden">
         <div class="chart-wrapper">
@@ -1151,6 +1151,10 @@
       chatInterface.classList.add('hidden');
       currentSelectedThread = null;
       saveCurrentThread(null);
+      
+      // Hide summary and analytics sections when returning to thread selection
+      hideSummarySection();
+      hideAnalyticsSection();
     }
 
     function showChatInterface(threadKey) {
@@ -1171,7 +1175,8 @@
       updateAllThreadSelections(threadKey);
       loadThreadSummary(threadKey);
       
-      // Auto-show and load visual analytics
+      // Show summary and analytics sections when thread is selected
+      showSummarySection();
       showAnalyticsSection();
       loadThreadAnalytics(threadKey);
     }
@@ -1502,15 +1507,20 @@
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let receivedText = "";
+        let buffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           
           const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
           
-          // Check for progress messages
-          const lines = chunk.split('\n');
+          // Process complete lines from buffer
+          const lines = buffer.split('\n');
+          // Keep the last incomplete line in buffer
+          buffer = lines.pop() || '';
+          
           for (const line of lines) {
             if (line.startsWith('PROGRESS: ')) {
               const progressMessage = line.substring(10);
@@ -1532,23 +1542,31 @@
               } else {
                 progressText.textContent = progressMessage;
               }
-              continue;
-            }
-            
-            // Regular content line
-            if (line.trim()) {
+            } else if (line.trim()) {
+              // Regular content line - add to received text
               receivedText += line + '\n';
-              currentResponseContent = receivedText;
-              
-              // Update the streaming message
-              addChatMessage('assistant', currentResponseContent, true);
             }
           }
+          
+          // Process any remaining content in buffer for display
+          if (buffer.trim() && !buffer.startsWith('PROGRESS: ')) {
+            receivedText += buffer;
+          }
+          
+          // Update the streaming message with accumulated content
+          currentResponseContent = receivedText;
+          addChatMessage('assistant', currentResponseContent, true);
 
           // Update progress based on content
           if (receivedText.includes("Analyzing query and searching thread")) {
             updateProgress(4, "Generating response...");
           }
+        }
+        
+        // Process any remaining content in buffer
+        if (buffer.trim() && !buffer.startsWith('PROGRESS: ')) {
+          receivedText += buffer;
+          currentResponseContent = receivedText;
         }
 
         // Complete the streaming message
@@ -1825,7 +1843,22 @@
     }
 
     async function loadThreadAnalytics(threadKey) {
-      if (!threadKey) return;
+      if (!threadKey) {
+        console.log('No thread key provided for analytics');
+        hideAnalyticsLoading();
+        showAnalyticsNoData();
+        const analyticsThreadName = document.getElementById('analytics-thread-name');
+        if (analyticsThreadName) {
+          analyticsThreadName.textContent = 'No thread selected';
+        }
+        analyticsNoData.innerHTML = `
+          <div style="text-align: center; color: #6c757d; padding: 2em;">
+            <h4>No Thread Selected</h4>
+            <p>Please select a thread from the main interface to view analytics.</p>
+          </div>
+        `;
+        return;
+      }
 
       showAnalyticsLoading();
       
@@ -1855,16 +1888,44 @@
         showAnalyticsCharts();
         
       } catch (error) {
-        console.error('Error loading analytics:', error);
+        console.error('Error loading analytics for thread:', threadKey, error);
         hideAnalyticsLoading();
         showAnalyticsNoData();
-        analyticsNoData.innerHTML = `
-          <div style="color: var(--error-color);">
-            <strong>Error loading analytics:</strong><br>
-            ${error.message}<br><br>
-            <small>Make sure the thread has been processed and analytics are available.</small>
-          </div>
-        `;
+        
+        // Check if it's a 404 (analytics not found) vs other errors
+        if (error.message.includes('404')) {
+          analyticsNoData.innerHTML = `
+            <div style="text-align: center; color: #6c757d; padding: 2em;">
+              <h4>Analytics Not Available Yet</h4>
+              <p>Analytics for thread "${threadKey}" are being generated.</p>
+              <p><small>Try reprocessing the thread or wait for analysis to complete.</small></p>
+            </div>
+          `;
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          analyticsNoData.innerHTML = `
+            <div style="color: var(--warning-color); text-align: center; padding: 2em;">
+              <h4>Connection Issue</h4>
+              <p><strong>Thread:</strong> ${threadKey}</p>
+              <p>Unable to connect to the analytics service.</p>
+              <p><small>Make sure the Flask application is running on port 8080.</small></p>
+              <button onclick="loadThreadAnalytics('${threadKey}')" class="btn btn-small" style="margin-top: 1em;">
+                Retry
+              </button>
+            </div>
+          `;
+        } else {
+          analyticsNoData.innerHTML = `
+            <div style="color: var(--error-color); text-align: center; padding: 2em;">
+              <h4>Error Loading Analytics</h4>
+              <p><strong>Thread:</strong> ${threadKey}</p>
+              <p><strong>Error:</strong> ${error.message}</p>
+              <p><small>Analytics are available but there was an error loading them.</small></p>
+              <button onclick="loadThreadAnalytics('${threadKey}')" class="btn btn-small" style="margin-top: 1em;">
+                Retry
+              </button>
+            </div>
+          `;
+        }
       }
     }
 
@@ -2083,9 +2144,9 @@
       hideSummarySection();
     });
 
-    // Show both sections by default
-    showSummarySection();
-    showAnalyticsSection();
+    // Hide both sections by default - they will be shown when thread is selected
+    hideSummarySection();
+    hideAnalyticsSection();
 
     // Enhanced form submission handler
     form.addEventListener("submit", async (e) => {
@@ -2309,9 +2370,7 @@
         updateLoadButtonState();
       }
       
-      // Show both analytics sections by default
-      showSummarySection();
-      showAnalyticsSection();
+      // Sections will be shown when a thread is selected
       
       console.log('Forum Analyst AI Chat Interface initialized');
       console.log('Available threads:', availableThreads);

@@ -5,6 +5,7 @@ This module handles the final stage of query processing, including
 LLM interaction and response formatting.
 """
 
+import json
 import logging
 import time
 from typing import Dict, List, Optional
@@ -14,6 +15,7 @@ import requests
 from analytics.data_analyzer import ForumDataAnalyzer
 from analytics.query_analytics import ConversationalQueryProcessor
 from analytics.llm_query_router import LLMQueryRouter
+from analytics.topic_indexer import TopicIndexer
 from config.settings import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
 from search.semantic_search import SemanticSearchEngine
 from search.response_refiner import ResponseRefiner
@@ -22,6 +24,7 @@ from search.keyword_search import KeywordSearchEngine, merge_search_results
 from utils.file_utils import safe_read_json
 from utils.shared_data_manager import get_data_manager
 from utils.memory_optimizer import memory_efficient
+from utils.topic_cache import TopicIndexCache
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +45,19 @@ class QueryProcessor:
         self.response_refiner = ResponseRefiner()
         self.llm_router = LLMQueryRouter()
         
+        # Initialize topic indexing components
+        self.topic_indexer = TopicIndexer()
+        self.topic_cache = TopicIndexCache()
+        
         # Initialize keyword search with posts from semantic search engine
         self.keyword_search = KeywordSearchEngine(self.search_engine.posts)
         
         # Initialize verifiable response system lazily
         self.verifiable_response = None
+        
+        # Extract thread key from directory path
+        import os
+        self.thread_key = os.path.basename(thread_dir)
         
         # LLM configuration
         self.chat_url = f"{OLLAMA_BASE_URL}/api/chat"
@@ -76,13 +87,16 @@ class QueryProcessor:
         logger.info(f"Processing query: '{query[:50]}...'")
         
         try:
-            # Step 1: Use LLM to intelligently route the query
+            # Step 1: Check for topic index matches first
+            topic_search_result = self._search_topic_index(query)
+            
+            # Step 2: Use LLM to intelligently route the query
             thread_metadata = self._get_thread_metadata()
             routing_decision = self.llm_router.route_query(query, thread_metadata)
             
             logger.info(f"LLM routing decision: {routing_decision.get('method')} - {routing_decision.get('reasoning')}")
             
-            # Step 2: Apply query enhancement for semantic queries
+            # Step 3: Apply query enhancement for semantic queries
             if routing_decision.get('method') == 'semantic':
                 query_analysis = self.query_analyzer.analyze_conversational_query(query)
                 expanded_query = query_analysis.get('expanded_query', query)
@@ -92,7 +106,34 @@ class QueryProcessor:
                 query_analysis = {'expanded_query': query}
                 expanded_query = query
             
-            # Step 3: Route to appropriate processor
+            # Step 4: Check if topic index found strong matches
+            if topic_search_result.get('total_matches', 0) > 0:
+                logger.info(f"Found {topic_search_result['total_matches']} topic matches for '{topic_search_result.get('primary_topic')}', prioritizing topic-based response")
+                
+                # Use topic matches as primary context for semantic processing
+                topic_matches = topic_search_result.get('matches', [])
+                if topic_matches and routing_decision.get('method') == 'semantic':
+                    # Convert topic matches to search results format
+                    topic_based_results = self._convert_topic_matches_to_search_results(topic_matches)
+                    
+                    # Generate response using topic context
+                    if stream:
+                        response_generator = self._generate_topic_based_response_stream(
+                            query, topic_search_result, topic_based_results
+                        )
+                        return {
+                            'query': query,
+                            'analysis': query_analysis,
+                            'topic_context': topic_search_result,
+                            'search_results': topic_based_results,
+                            'context_posts': len(topic_matches),
+                            'response_stream': response_generator,
+                            'processing_time': time.time() - start_time,
+                            'query_type': 'topic_semantic',
+                            'search_method': 'topic_index'
+                        }
+            
+            # Step 5: Route to appropriate processor with topic context
             if routing_decision.get('method') == 'analytical':
                 logger.info("Routing query to analytical data processor")
                 # Map the LLM's query_type to our analytical capabilities
@@ -1140,6 +1181,121 @@ class QueryProcessor:
                 return {'error': f'Verification system error: {e}'}
         
         return self.verifiable_response.generate_fact_check_report(response_data)
+    
+    def _search_topic_index(self, query: str) -> Dict:
+        """Search topic index for relevant matches.
+        
+        Args:
+            query: User query string
+            
+        Returns:
+            Dictionary with topic search results
+        """
+        try:
+            # Check if topic index exists for this thread
+            if not self.topic_cache.has_topic_index(self.thread_key):
+                logger.debug(f"No topic index found for thread {self.thread_key}")
+                return {'topics_found': [], 'total_matches': 0, 'search_method': 'topic_index'}
+            
+            # Find the most relevant topic for the query
+            relevant_topic = self.topic_indexer.get_topic_by_query(query)
+            
+            if not relevant_topic:
+                logger.debug(f"No relevant topic found for query: {query}")
+                return {'topics_found': [], 'total_matches': 0, 'search_method': 'topic_index'}
+            
+            # Get topic matches for the thread
+            topic_matches = self.topic_cache.get_topic_matches_for_thread(self.thread_key, relevant_topic)
+            
+            if not topic_matches:
+                logger.debug(f"No matches found for topic {relevant_topic} in thread {self.thread_key}")
+                return {'topics_found': [], 'total_matches': 0, 'search_method': 'topic_index'}
+            
+            # Sort matches by relevance score
+            sorted_matches = sorted(topic_matches, key=lambda x: x.get('score', 0), reverse=True)
+            
+            logger.info(f"Topic index search found {len(sorted_matches)} matches for topic '{relevant_topic}'")
+            
+            return {
+                'topics_found': [relevant_topic],
+                'primary_topic': relevant_topic,
+                'matches': sorted_matches[:10],  # Top 10 matches
+                'total_matches': len(sorted_matches),
+                'search_method': 'topic_index'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error searching topic index: {e}")
+            return {'topics_found': [], 'total_matches': 0, 'search_method': 'topic_index', 'error': str(e)}
+    
+    def _convert_topic_matches_to_search_results(self, topic_matches: List[Dict]) -> List[Dict]:
+        """Convert topic matches to standard search results format."""
+        results = []
+        for match in topic_matches:
+            result = {
+                'post_id': match.get('post_id'),
+                'page': match.get('page'),
+                'author': match.get('author'),
+                'content': match.get('excerpt'),
+                'url': match.get('permalink'),
+                'relevance_score': match.get('score', 0),
+                'matched_keywords': match.get('matched_keywords', []),
+                'topic_id': match.get('topic_id'),
+                'source': 'topic_index'
+            }
+            results.append(result)
+        return results
+    
+    def _generate_topic_based_response_stream(self, query: str, topic_context: Dict, search_results: List[Dict]):
+        """Generate streaming response using topic context."""
+        topic_name = topic_context.get('primary_topic', 'Unknown')
+        total_matches = topic_context.get('total_matches', 0)
+        
+        # Build context for LLM
+        context_posts = []
+        for result in search_results[:5]:  # Top 5 for context
+            post_text = f"**{result['author']} (Page {result['page']})**: {result['content']}"
+            if result.get('url'):
+                post_text += f" [Link]({result['url']})"
+            context_posts.append(post_text)
+        
+        # Create prompt with topic context
+        prompt = f"""Based on the following posts about '{topic_name}' from a forum discussion, please answer this question: "{query}"
+
+**Relevant Posts ({total_matches} total matches found):**
+
+{chr(10).join(context_posts)}
+
+Please provide a comprehensive answer based on these posts. Include specific details and mention the sources when relevant."""
+
+        # Stream response from LLM
+        try:
+            response = requests.post(
+                self.chat_url,
+                json={
+                    'model': self.model,
+                    'messages': [{'role': 'user', 'content': prompt}],
+                    'stream': True,
+                    'options': {'temperature': 0.7}
+                },
+                stream=True,
+                timeout=60
+            )
+            
+            if response.status_code == 200:
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            if 'message' in data and 'content' in data['message']:
+                                yield data['message']['content']
+                        except json.JSONDecodeError:
+                            continue
+            else:
+                yield f"Error: Failed to get response from LLM (status {response.status_code})"
+                
+        except Exception as e:
+            yield f"Error generating topic-based response: {str(e)}"
 
 # Old query detection methods removed - now using LLM-based routing
 
