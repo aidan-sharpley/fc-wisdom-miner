@@ -1546,9 +1546,11 @@
       // Update UI visibility in setup section
       if (selectedThread) {
         reprocessSection.classList.remove('hidden');
+        urlSection.classList.add('hidden'); // Hide URL section when thread is selected
         loadThreadBtn.innerHTML = '<span>🔗</span> Load Thread';
       } else {
         reprocessSection.classList.add('hidden');
+        urlSection.classList.remove('hidden'); // Show URL section when no thread is selected
         if (urlInput.value.trim()) {
           loadThreadBtn.innerHTML = '<span>🔗</span> Process New Thread';
         } else {
@@ -1704,7 +1706,6 @@
 
       // Show status panel for processing feedback
       showStatusPanel();
-      let currentResponseContent = '';
 
       try {
         // Build the payload for existing thread
@@ -1776,14 +1777,8 @@
             }
           }
           
-          // Process any remaining content in buffer for display
-          if (buffer.trim() && !buffer.startsWith('PROGRESS: ')) {
-            receivedText += buffer;
-          }
-          
           // Update the streaming message with accumulated content
-          currentResponseContent = receivedText;
-          addChatMessage('assistant', currentResponseContent, true);
+          addChatMessage('assistant', receivedText, true);
 
           // Update progress based on content
           if (receivedText.includes("Analyzing query and searching thread")) {
@@ -1794,11 +1789,10 @@
         // Process any remaining content in buffer
         if (buffer.trim() && !buffer.startsWith('PROGRESS: ')) {
           receivedText += buffer;
-          currentResponseContent = receivedText;
         }
 
         // Complete the streaming message
-        addChatMessage('assistant', currentResponseContent, false);
+        addChatMessage('assistant', receivedText, false);
         
         // Complete progress
         updateProgress(4, "Analysis complete!");
@@ -2596,8 +2590,7 @@
         updateLoadButtonState();
       }
       
-      // Ensure URL section is always visible at startup
-      urlSection.classList.remove('hidden');
+      // URL section visibility will be managed by updateAllThreadSelections
       
       // Summary and analytics sections will only be shown after successful chat interaction
       

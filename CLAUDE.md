@@ -25,11 +25,6 @@ Install using uv (preferred) or pip:
 uv pip install Flask requests beautifulsoup4 hnswlib numpy tqdm
 ```
 
-Optional enhanced dependencies:
-```bash
-uv add scikit-learn          # For advanced semantic clustering
-uv add elasticsearch         # For hybrid search capabilities
-```
 
 Core dependencies:
 - Flask (web framework)
@@ -38,10 +33,6 @@ Core dependencies:
 - hnswlib (vector indexing)
 - numpy (numerical operations)
 - tqdm (progress bars)
-
-Optional dependencies:
-- scikit-learn (semantic clustering)
-- elasticsearch (hybrid search)
 
 ### Environment Variables
 - `BASE_TMP_DIR`: Directory for data storage (default: "tmp")
@@ -142,11 +133,8 @@ This is a modular forum analysis application with separate components for scrapi
 - **CSS Selector Management**: Platform-specific selectors for XenForo, vBulletin, phpBB
 - **Adaptive Scraping**: Adjusts scraping behavior based on platform
 
-#### 11. **Enhanced Analysis Systems (NEW)**
-- **Enhanced Topic Analyzer** (`analytics/enhanced_topic_analyzer.py`): Semantic clustering with k-means and silhouette analysis
+#### 11. **Advanced Analysis Systems**
 - **Verifiable Response System** (`search/verifiable_response_system.py`): Fact-checking with post evidence and citations
-- **ElasticSearch Integration** (`search/elasticsearch_integration.py`): Hybrid semantic + full-text search
-- **Multi-Pass Fusion System** (`analytics/multipass_fusion_system.py`): Cross-validated insights from multiple analysis types
 
 #### 12. **Security & Utilities**
 - **Security Utils** (`utils/security.py`): Input validation, SSRF protection, sanitization
@@ -188,9 +176,8 @@ configs/
 
 ### 📖 **Auto-Generated Thread Narratives** 
 - **Performance Optimized**: Reduced from 300 to ~15 phases maximum for M1 MacBook Air efficiency
-- **Enhanced Semantic Clustering**: Uses k-means clustering and silhouette analysis for optimal topic detection
+- **Intelligent Topic Detection**: Content-based topic detection that works with any forum domain
 - **Comprehensive Topic Overviews**: Rich 1-2 sentence summaries for each topic with post ranges and clickable links to topic starts
-- **Intelligent Phase Detection**: Generic topic detection works with any forum domain
 - **Conversation Overview**: Comprehensive thread summaries with key developments and outcomes
 - **Key Contributors**: Identifies top participants with engagement metrics and activity patterns
 - **Topic Evolution**: Shows how discussions evolved across different conversation phases
@@ -203,7 +190,7 @@ configs/
 - **Analytical Queries**: "Who is most active?" → Analyzes ALL posts, returns exact counts with verifiable evidence
 - **Thread Authorship Queries**: "Who is the thread author?" → URL-based metadata extraction with high confidence
 - **Positional Queries**: "Who was the second user to post?" → Chronological analysis with post links
-- **Semantic Queries**: "What heating techniques work best?" → Hybrid search (ElasticSearch + vector search) + LLM
+- **Semantic Queries**: "What heating techniques work best?" → Vector search + LLM analysis
 - **Technical Specifications**: "What materials and settings work best?" → Generic extraction, no hardcoded terms
 - **Verifiable Responses**: All claims backed by specific post evidence with clickable citations
 - **Smart Detection**: Automatically routes queries to appropriate processor
@@ -216,13 +203,13 @@ configs/
 
 ### 🚀 **Performance & Memory Optimization**
 - **Complete Thread Analysis**: Processes up to 1000 pages with progress tracking
-- **Enhanced Search**: Hybrid ElasticSearch + semantic search with fallback capabilities
-- **Multi-Pass Analysis**: Cross-validated insights from topic, participant, engagement, and temporal analysis
+- **Efficient Vector Search**: HNSW-based semantic search optimized for 8GB systems
+- **Comprehensive Analysis**: Integrated insights from topic, participant, engagement, and temporal analysis
 - **Worker Optimization**: 3 workers (vs 4) for efficiency
 - **Memory Management**: Reduced batch sizes and cache limits for 8GB systems
 - **HNSW Tuning**: Optimized parameters for memory constraints
 - **Advanced Caching**: Content-based cache with intelligent cleanup
-- **Lazy Loading**: Heavy dependencies load only when needed for fast startup
+- **Fast Startup**: Lightweight core dependencies for quick initialization
 
 ### 🔄 **Reprocess Functionality**
 - **HTML-Based Reprocessing**: Re-parses original HTML files with optimizations
@@ -299,9 +286,9 @@ configs/
 **Solution**: Fixed data structure mismatch between frontend and backend (narrative vs narrative_summary)
 **Result**: Thread narratives now appear automatically when selecting threads in the UI
 
-### 11. **Enhanced Topic Overviews with Semantic Clustering** ✅
+### 11. **Enhanced Topic Overviews with Intelligent Grouping** ✅
 **Problem**: Topic detection relied on simple position-based grouping with superficial descriptions
-**Solution**: Implemented semantic clustering using k-means with silhouette analysis and comprehensive topic summaries
+**Solution**: Implemented content-based topic detection with comprehensive summaries
 **Result**: Rich 1-2 sentence topic overviews with post ranges, engagement metrics, and clickable links to topic starts
 
 ### 12. **Verifiable Response System with Post Evidence** ✅
@@ -309,15 +296,7 @@ configs/
 **Solution**: Created comprehensive fact-checking system with post citations and evidence grading
 **Result**: All analytical responses now include clickable post links with evidence and confidence levels
 
-### 13. **Multi-Pass Analysis Fusion** ✅
-**Problem**: Analysis types worked in isolation without cross-validation
-**Solution**: Implemented multi-pass system that combines topic, participant, engagement, and temporal analysis
-**Result**: Cross-validated insights with comprehensive evidence collection and executive summaries
 
-### 14. **Hybrid Search Integration** ✅
-**Problem**: Limited to semantic search without fast full-text capabilities
-**Solution**: Added ElasticSearch integration with hybrid semantic + keyword search
-**Result**: Fast ranked full-text search with intelligent fallback when ElasticSearch unavailable
 
 ## Usage Patterns
 
@@ -349,7 +328,7 @@ configs/
 - **Technical**: "What settings work best?", "Common configurations?" (generic extraction)
 - **Temporal**: "What changed over time?", "Recent developments?" (timeline analysis)
 - **Participant**: "What did UserX contribute?", "Most active contributors?" (comprehensive analysis)
-- **Multi-Pass**: Complex queries benefit from cross-validated insights from multiple analysis types
+- **Comprehensive**: Complex queries get detailed analysis combining multiple analytical approaches
 
 ## Development Guidelines
 
@@ -374,10 +353,7 @@ configs/
 6. **Thread narratives not appearing**: Check if `thread_summary.json` exists and contains `narrative` key
 7. **Narrative generation too slow**: Verify aggressive caching is working, check `narrative_cache.json`
 8. **Generic queries failing**: System now works with any domain - no hardcoded terms should be needed
-9. **Enhanced features not working**: Install optional dependencies (`uv add scikit-learn elasticsearch`)
-10. **Slow startup**: Enhanced features use lazy loading - heavy dependencies load only when needed
-11. **Missing verification evidence**: Check that verifiable response system is properly initialized
-12. **ElasticSearch errors**: System gracefully falls back to traditional search when ElasticSearch unavailable
+9. **Missing verification evidence**: Check that verifiable response system is properly initialized
 
 ### Performance Monitoring
 - All major operations include timing statistics

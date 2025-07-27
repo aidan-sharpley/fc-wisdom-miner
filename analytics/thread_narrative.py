@@ -100,35 +100,14 @@ class ThreadNarrative:
         return combined_result
     
     def _generate_optimized_narrative(self, posts: List[Dict], analytics: Dict, use_streaming: bool = False) -> Dict:
-        """Generate narrative using enhanced semantic clustering approach."""
-        # Try to use enhanced topic analysis for better clustering
-        enhanced_analysis = {}
-        try:
-            from analytics.enhanced_topic_analyzer import EnhancedTopicAnalyzer
-            enhanced_analyzer = EnhancedTopicAnalyzer(self.thread_dir if hasattr(self, 'thread_dir') else 'tmp')
-            enhanced_analysis = enhanced_analyzer.analyze_thread_topics(posts)
-            logger.info("Using enhanced semantic clustering for narrative generation")
-        except ImportError:
-            logger.info("Enhanced topic analyzer not available, using traditional methods")
-        except Exception as e:
-            logger.warning(f"Enhanced topic analysis failed: {e}, falling back to traditional methods")
+        """Generate narrative using intelligent content-based topic detection."""
+        logger.info("Using content-based topic detection for narrative generation")
         
-        # Fall back to traditional phases if enhanced analysis fails
-        if enhanced_analysis.get('enhanced_topics', {}).get('topic_clusters'):
-            enhanced_topics = enhanced_analysis['enhanced_topics']
-            
-            # Convert enhanced clusters to phase format for compatibility
-            phases = self._convert_clusters_to_phases(enhanced_topics['topic_overviews'])
-            
-            # Enhanced narrative sections with better topic summaries
-            narrative_sections = self._generate_enhanced_narratives(enhanced_topics, posts)
-        else:
-            logger.info("Falling back to traditional phase detection")
-            phases = self._detect_intelligent_phases(posts)
-            reaction_posts = self._identify_reaction_posts(posts)
-            narrative_sections = self._generate_all_narratives(phases, posts, reaction_posts)
-        
+        # Use optimized phase detection
+        phases = self._detect_intelligent_phases(posts)
         reaction_posts = self._identify_reaction_posts(posts)
+        narrative_sections = self._generate_all_narratives(phases, posts, reaction_posts)
+        
         thread_summary = self._generate_thread_overview(posts, phases, analytics)
         
         result = {
@@ -136,13 +115,9 @@ class ThreadNarrative:
             'conversation_phases': phases,
             'narrative_sections': narrative_sections,
             'high_reaction_posts': reaction_posts[:5],  # Top 5 only
-            'topic_evolution': enhanced_analysis.get('enhanced_topics', {}).get('topic_evolution', self._analyze_topic_evolution(phases)),
+            'topic_evolution': self._analyze_topic_evolution(phases),
             'key_contributors': self._identify_key_contributors(posts, phases)[:8]  # Top 8 only
         }
-        
-        # Add enhanced topic data if available
-        if 'enhanced_topics' in enhanced_analysis:
-            result['enhanced_topic_analysis'] = enhanced_analysis['enhanced_topics']
         
         return result
     
@@ -667,146 +642,6 @@ Focus on what was accomplished and key outcomes."""
         
         return fallback_narrative
     
-    def _convert_clusters_to_phases(self, topic_overviews: List[Dict]) -> List[Dict]:
-        """Convert enhanced topic clusters to traditional phase format for compatibility."""
-        phases = []
-        
-        for overview in topic_overviews:
-            post_range = overview.get('post_range', {})
-            phase = {
-                'sequence': overview.get('cluster_id', 0),
-                'topic': overview.get('topic_title', 'General Discussion'),
-                'title': overview.get('topic_title', 'General Discussion'),
-                'post_range': f"posts {post_range.get('start_position', 1)}-{post_range.get('end_position', 1)}",
-                'page_range': f"pages {post_range.get('start_page', 1)}-{post_range.get('end_page', 1)}" if post_range.get('start_page') != post_range.get('end_page') else f"page {post_range.get('start_page', 1)}",
-                'post_count': post_range.get('post_count', 0),
-                'key_participants': {},  # Will be populated from content analysis
-                'total_engagement': overview.get('engagement_metrics', {}).get('total_engagement', 0),
-                'sample_posts': [],  # Will be populated from highlights
-                'first_post_url': overview.get('first_post_link', ''),
-                'topic_keywords': overview.get('topic_keywords', []),
-                'start_date': '',  # Will be populated if temporal info available
-                'end_date': '',
-                'narrative_ready': True,
-                'semantic_summary': overview.get('semantic_summary', '')
-            }
-            
-            # Add temporal information if available
-            temporal_info = overview.get('temporal_info')
-            if temporal_info:
-                phase['start_date'] = temporal_info.get('start', '').strftime('%Y-%m-%d') if temporal_info.get('start') else ''
-                phase['end_date'] = temporal_info.get('end', '').strftime('%Y-%m-%d') if temporal_info.get('end') else ''
-            
-            # Add top contributors
-            content_analysis = overview.get('content_analysis', {})
-            top_contributors = content_analysis.get('top_contributors', [])
-            phase['key_participants'] = {contrib['author']: contrib['posts'] for contrib in top_contributors[:3]}
-            
-            phases.append(phase)
-        
-        return phases
-    
-    def _generate_enhanced_narratives(self, enhanced_topics: Dict, posts: List[Dict]) -> List[Dict]:
-        """Generate enhanced narrative sections using semantic topic analysis."""
-        narrative_sections = []
-        topic_overviews = enhanced_topics.get('topic_overviews', [])
-        topic_highlights = enhanced_topics.get('topic_highlights', {})
-        
-        for overview in topic_overviews:
-            cluster_id = overview.get('cluster_id', 0)
-            
-            # Get highlights for this cluster
-            cluster_highlights = topic_highlights.get(f'cluster_{cluster_id}', [])
-            
-            # Create enhanced narrative section
-            narrative_section = {
-                'phase_summary': self._convert_overview_to_phase_summary(overview),
-                'narrative_text': self._generate_enhanced_topic_narrative(overview),
-                'topic_title': overview.get('topic_title', 'Discussion Topic'),
-                'first_post_url': overview.get('first_post_link', ''),
-                'topic_keywords': overview.get('topic_keywords', []),
-                'highlights': cluster_highlights,
-                'engagement_summary': overview.get('engagement_metrics', {}),
-                'content_analysis': overview.get('content_analysis', {}),
-                'semantic_summary': overview.get('semantic_summary', ''),
-                'enhanced_topic_data': {
-                    'cluster_id': cluster_id,
-                    'post_range': overview.get('post_range', {}),
-                    'temporal_info': overview.get('temporal_info', {}),
-                    'discussion_density': overview.get('content_analysis', {}).get('discussion_density', 0)
-                }
-            }
-            
-            narrative_sections.append(narrative_section)
-        
-        return narrative_sections
-    
-    def _convert_overview_to_phase_summary(self, overview: Dict) -> Dict:
-        """Convert topic overview to phase summary format."""
-        post_range = overview.get('post_range', {})
-        return {
-            'sequence': overview.get('cluster_id', 0),
-            'topic': overview.get('topic_title', 'General'),
-            'title': overview.get('topic_title', 'Discussion'),
-            'post_range': f"posts {post_range.get('start_position', 1)}-{post_range.get('end_position', 1)}",
-            'page_range': f"pages {post_range.get('start_page', 1)}-{post_range.get('end_page', 1)}" if post_range.get('start_page') != post_range.get('end_page') else f"page {post_range.get('start_page', 1)}",
-            'post_count': post_range.get('post_count', 0),
-            'key_participants': {contrib['author']: contrib['posts'] for contrib in overview.get('content_analysis', {}).get('top_contributors', [])[:2]},
-            'total_engagement': overview.get('engagement_metrics', {}).get('total_engagement', 0),
-            'first_post_url': overview.get('first_post_link', ''),
-            'topic_keywords': overview.get('topic_keywords', [])
-        }
-    
-    def _generate_enhanced_topic_narrative(self, overview: Dict) -> str:
-        """Generate enhanced narrative text for a topic cluster."""
-        topic_title = overview.get('topic_title', 'Discussion Topic')
-        semantic_summary = overview.get('semantic_summary', '')
-        post_range = overview.get('post_range', {})
-        engagement_metrics = overview.get('engagement_metrics', {})
-        content_analysis = overview.get('content_analysis', {})
-        topic_keywords = overview.get('topic_keywords', [])
-        
-        # Start with semantic summary as base
-        narrative_parts = [semantic_summary] if semantic_summary else []
-        
-        # Add engagement context
-        engagement_level = engagement_metrics.get('engagement_level', 'low')
-        total_engagement = engagement_metrics.get('total_engagement', 0)
-        
-        if engagement_level == 'high' and total_engagement > 0:
-            narrative_parts.append(f"This topic generated significant community interest with {total_engagement} total reactions and votes.")
-        elif engagement_level == 'medium' and total_engagement > 0:
-            narrative_parts.append(f"The discussion attracted moderate attention with {total_engagement} community interactions.")
-        
-        # Add content insights
-        top_contributors = content_analysis.get('top_contributors', [])
-        if top_contributors:
-            if len(top_contributors) == 1:
-                narrative_parts.append(f"The conversation was primarily driven by {top_contributors[0]['author']}.")
-            elif len(top_contributors) == 2:
-                narrative_parts.append(f"Key participants included {top_contributors[0]['author']} and {top_contributors[1]['author']}.")
-            else:
-                main_contrib = top_contributors[0]['author']
-                others_count = len(top_contributors) - 1
-                narrative_parts.append(f"Led by {main_contrib} with {others_count} other active contributors.")
-        
-        # Add keyword context
-        if topic_keywords:
-            keywords_text = ", ".join(topic_keywords[:4])
-            narrative_parts.append(f"The discussion centered around {keywords_text}.")
-        
-        # Add temporal context if available
-        temporal_info = overview.get('temporal_info')
-        if temporal_info and temporal_info.get('duration_days', 0) > 0:
-            duration = temporal_info['duration_days']
-            if duration == 1:
-                narrative_parts.append("The topic was discussed over a single day.")
-            elif duration < 7:
-                narrative_parts.append(f"The conversation spanned {duration} days.")
-            else:
-                narrative_parts.append(f"This topic evolved over {duration} days of discussion.")
-        
-        return " ".join(narrative_parts)
     
     def _create_engagement_summary(self, phase: Dict) -> Dict:
         """Create engagement summary for the phase."""
